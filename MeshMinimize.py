@@ -1,20 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import clr
-clr.AddReference("mtrand")
-
-import numpy as np
+import copy
+import vectorWorks as vw
 import rhinoscriptsyntax as rs
 import Rhino
 
 def upwardFace(x1, x2, x3):
+    """
     v2 = rs.VectorCreate(x2, x1)
     v3 = rs.VectorCreate(x3, x1)
     vv = rs.VectorCrossProduct(v2, v3)
     z = rs.VectorCreate([0,0,1], [0,0,0])
     a = rs.VectorDotProduct(vv, z)
     return a > 0
+    """
+    # unnecessary, eqautions are already invariant by faces permutations around 
+    # a vertex
+    return True
 
 def orientMeshFaces(mesh, connec):
     vertices = rs.MeshVertices(mesh)
@@ -31,70 +34,87 @@ def orientMeshFaces(mesh, connec):
                 if debug: print 'flip'
     return vertexFaces
 
-def iterateVertex(i, vertices, vertexFaces, q, var, speed):
-    qMi = np.matrix(np.zeros([3, 3]))
-    qMiX2 = np.matrix(np.zeros([3, 1]))
+def iterateVertex(i, vertices, vertexFaces, q, var, speed, method):
+    qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+    qMiX2 = [0, 0, 0]
+    qli = 0
     j = 0
     if debug: print '####'
     if debug: print vertices[i]
     while vertexFaces.get((i, j), 0):
         x2 = vertices[vertexFaces[(i, j)][1]]
         x3 = vertices[vertexFaces[(i, j)][2]]
-        x23 = x3 - x2
-        qMij = q[j] * ( (x23 * x23.getT())[0, 0] * np.matrix(np.eye(3))
-                         - np.matrix([[x23[0, k]*x23[0, l] for k in range (0,3)]
-                                                           for l in range(0, 3)]
-                                  )
-                          )
-        qMi += qMij
-        qMiX2 += qMij * np.matrix([x2[0, 0], x2[0, 1], x2[0, 2]]).getT()
-        if debug: print (i, j)
-        if debug: print x2, x3
-        if debug: print qMij
-        if debug: print qMij * np.matrix([x2[0, 0], x2[0, 1], x2[0, 2]]).getT()
-        if debug: print '---'
+        x23 = vw.matminus(x3, x2)
+        qij = q[vertexFaces[(i, j)][1]]
+        qMij = vw.matmul(qij, 
+                  vw.matminus(
+                    vw.matmul(vw.dotproduct(x23, x23), vw.id),
+                    vw.veckronproduct(x23, x23)
+                           )
+                        )
+        qMi = vw.matplus(qMi, qMij)
+        qMiX2 = vw.matplus(qMiX2, vw.matmul(qMij, x2))
+        qli += qij * vw.dotproduct(x23, x23)
+        if debug: 
+            print (i, j)
+            print x2, x3
+            print x23
+            print q
+            print qMij
+            print vw.matmul(qMij, x2)
+            print qli
+            print '---'
         j += 1
     if debug: print qMi
     if debug: print qMiX2
-    newVertex = ( vertices[i]
-                + speed * ((qMi.getI() * qMiX2).getT()-vertices[i]) )
-    if (((newVertex-vertices[i])*(newVertex-vertices[i]).getT())[0, 0]
+    if method == 'gradient':
+        newVertex = vw.matplus(vertices[i], 
+                        vw.matmul(speed, 
+                            vw.matminus(
+                                        vw.matmul(vw.inverse(qMi), qMiX2),
+                                        vertices[i]
+                                       )
+                            ))
+    elif method == 'fixed-point':
+        newVertex = vw.matplus( vw.matmul(speed/qli, vw.matminus(qMiX2,
+                                                vw.matmul(qMi, vertices[i]))),
+                                vertices[i] )
+    if (vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
+                       vw.matminus(newVertex, vertices[i]))
         > var):
-        var = ((newVertex - vertices[i])*(newVertex - vertices[i])
-               .getT())[0, 0]
+        var = vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
+                       vw.matminus(newVertex, vertices[i]))
     return var, newVertex
     
-def iterateOneStep(vertices, vertexFaces, naked, q, iter, speed):
-    newVertices = np.matrix(np.copy(vertices))
+def iterateOneStep(vertices, vertexFaces, naked, q, iter, speed, method):
+    newVertices = copy.deepcopy(vertices)
     iter += 1
     var = 0
     for i in range(len(vertices)):
         if not naked[i]:
             var, newVertices[i] = iterateVertex(i, vertices, vertexFaces,
-                                                q, var, speed)
-    vertices = np.matrix(np.copy(newVertices))
+                                                q, var, speed, method)
+    vertices = copy.deepcopy(newVertices)
     return iter, var, vertices
     
 def meshDistance(vertices, objective):
     distance = 0
     for i in range(len(vertices)):
-        if (((objective[i]-vertices[i])*(objective[i]-vertices[i]).getT())[0, 0]
+        if (vw.dotproduct(vw.matminus(objective[i], vertices[i]),
+                          vw.matminus(objective[i], vertices[i]))
             > distance):
-            distance = ((objective[i] - vertices[i])*(objective[i] - vertices[i])
-                   .getT())[0, 0]
+            distance = vw.dotproduct(vw.matminus(objective[i], vertices[i]),
+                                     vw.matminus(objective[i], vertices[i]))
     return distance
     
-def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5):
-    if not q: q = np.ones(rs.MeshFaceCount(mesh))
+def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5,
+                 method='gradient'):
+    if not q: q = [1 for i in range(rs.MeshFaceCount(mesh))]
     if graphic or showResult: meshi = mesh
     oldVertices = rs.MeshVertices(mesh)
-    vertices = np.matrix(np.zeros((3, len(oldVertices)))).getT()
+    vertices = [[oldVertices[i][0], oldVertices[i][1], oldVertices[i][2]] 
+                for i in range(len(oldVertices))]
     if not reference: reference = vertices
-    
-    for i, v in enumerate(oldVertices):
-        vertices[i, 0] = v[0]
-        vertices[i, 1] = v[1]
-        vertices[i, 2] = v[2]
     connec = rs.MeshFaceVertices(mesh)
     vertexFaces = orientMeshFaces(mesh, connec)
     naked = rs.MeshNakedEdgePoints(mesh)
@@ -104,14 +124,11 @@ def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5)
     distances = []
     while (iter < itermax) & (var > lmax):
         iter, var, vertices = iterateOneStep(vertices, vertexFaces, naked,
-                                             q, iter, speed)
-        distances.append(meshDistance(vertices, reference))
+                                             q, iter, speed, method)
+        #distances.append(meshDistance(vertices, reference))
         if graphic:
             rs.HideObject(meshi)
-            V = []
-            for i in range(0, len(vertices)):
-                V.append((vertices[i, 0], vertices[i, 1], vertices[i, 2]))
-            meshi = rs.AddMesh(V, connec)
+            meshi = rs.AddMesh(vertices, connec)
             print (u"itération {},"
                    u"\nDéplacement^2 maximum depuis "
                    u"l'itération précedente : {} mm²").format(iter, var)
@@ -120,10 +137,7 @@ def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5)
     
     if showResult:
         rs.HideObject(meshi)
-        V = []
-        for i in range(0, len(vertices)):
-            V.append((vertices[i, 0], vertices[i, 1], vertices[i, 2]))
-        rs.AddMesh(V, connec)
+        rs.AddMesh(vertices, connec)
         
     return vertices, distances
 
