@@ -8,31 +8,6 @@ import numpy as np
 import rhinoscriptsyntax as rs
 import Rhino
 
-debug = 0
-graphic = 1
-showResult = 0
-
-lmax = 0.001
-
-itermax = 5
-
-mesh = rs.GetObject("select mesh", rs.filter.mesh)
-
-q = np.ones(rs.MeshFaceCount(mesh))
-
-if graphic: meshi = mesh
-
-connec = rs.MeshFaceVertices(mesh)
-oldVertices = rs.MeshVertices(mesh)
-naked = rs.MeshNakedEdgePoints(mesh)
-
-vertices = np.matrix(np.zeros((3, len(oldVertices)))).getT()
-for i, v in enumerate(oldVertices):
-    vertices[i, 0] = v[0]
-    vertices[i, 1] = v[1]
-    vertices[i, 2] = v[2]
-newVertices = np.matrix(np.copy(vertices))
-
 def upwardFace(x1, x2, x3):
     v2 = rs.VectorCreate(x2, x1)
     v3 = rs.VectorCreate(x3, x1)
@@ -41,9 +16,8 @@ def upwardFace(x1, x2, x3):
     a = rs.VectorDotProduct(vv, z)
     return a > 0
 
-def orientMeshFaces(mesh):
+def orientMeshFaces(mesh, connec):
     vertices = rs.MeshVertices(mesh)
-    connec = rs.MeshFaceVertices(mesh)
     vertexFaces = {}
     for i, vertex in enumerate(vertices):
         for j, face in enumerate(rs.MeshVertexFaces(mesh, i)):
@@ -62,7 +36,7 @@ def iterateVertex(i, vertices, vertexFaces, q, var, speed):
     qMiX2 = np.matrix(np.zeros([3, 1]))
     j = 0
     if debug: print '####'
-    if debug: print vertex
+    if debug: print vertices[i]
     while vertexFaces.get((i, j), 0):
         x2 = vertices[vertexFaces[(i, j)][1]]
         x3 = vertices[vertexFaces[(i, j)][2]]
@@ -82,33 +56,23 @@ def iterateVertex(i, vertices, vertexFaces, q, var, speed):
         j += 1
     if debug: print qMi
     if debug: print qMiX2
-    newVertices[i] = ( vertices[i]
+    newVertex = ( vertices[i]
                 + speed * ((qMi.getI() * qMiX2).getT()-vertices[i]) )
-    if (((newVertices[i]-vertices[i])*(newVertices[i]-vertices[i]).getT())[0, 0]
+    if (((newVertex-vertices[i])*(newVertex-vertices[i]).getT())[0, 0]
         > var):
-        var = ((newVertices[i] - vertices[i])*(newVertices[i] - vertices[i])
+        var = ((newVertex - vertices[i])*(newVertex - vertices[i])
                .getT())[0, 0]
-    return var
+    return var, newVertex
     
-def iterateOneStep(vertices, vertexFaces, q, iter, speed):
-    global meshi
+def iterateOneStep(vertices, vertexFaces, naked, q, iter, speed):
+    newVertices = np.matrix(np.copy(vertices))
     iter += 1
     var = 0
     for i in range(len(vertices)):
         if not naked[i]:
-            var = iterateVertex(i, vertices, vertexFaces, q, var, speed)
+            var, newVertices[i] = iterateVertex(i, vertices, vertexFaces,
+                                                q, var, speed)
     vertices = np.matrix(np.copy(newVertices))
-    if graphic:
-        rs.HideObject(meshi)
-        V = []
-        for i in range(0, len(newVertices)):
-            V.append((newVertices[i, 0], newVertices[i, 1], newVertices[i, 2]))
-        meshi = rs.AddMesh(V, connec)
-        print (u"itération {},"
-               u"\nDéplacement^2 maximum depuis "
-               u"l'itération précedente : {} mm²").format(iter, var)
-    else:
-        print var
     return iter, var, vertices
     
 def meshDistance(vertices, objective):
@@ -120,20 +84,48 @@ def meshDistance(vertices, objective):
                    .getT())[0, 0]
     return distance
     
-def minimizeMesh(vertices, vertexFaces, q, itermax, lmax, reference, speed):
+def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5):
+    if not q: q = np.ones(rs.MeshFaceCount(mesh))
+    if graphic or showResult: meshi = mesh
+    oldVertices = rs.MeshVertices(mesh)
+    vertices = np.matrix(np.zeros((3, len(oldVertices)))).getT()
+    if not reference: reference = vertices
+    
+    for i, v in enumerate(oldVertices):
+        vertices[i, 0] = v[0]
+        vertices[i, 1] = v[1]
+        vertices[i, 2] = v[2]
+    connec = rs.MeshFaceVertices(mesh)
+    vertexFaces = orientMeshFaces(mesh, connec)
+    naked = rs.MeshNakedEdgePoints(mesh)
+    
     iter = 0
     var = 2*lmax
     distances = []
     while (iter < itermax) & (var > lmax):
-        iter, var, vertices = iterateOneStep(vertices, vertexFaces, q, iter, speed)
+        iter, var, vertices = iterateOneStep(vertices, vertexFaces, naked,
+                                             q, iter, speed)
         distances.append(meshDistance(vertices, reference))
-    return vertices, distances
+        if graphic:
+            rs.HideObject(meshi)
+            V = []
+            for i in range(0, len(vertices)):
+                V.append((vertices[i, 0], vertices[i, 1], vertices[i, 2]))
+            meshi = rs.AddMesh(V, connec)
+            print (u"itération {},"
+                   u"\nDéplacement^2 maximum depuis "
+                   u"l'itération précedente : {} mm²").format(iter, var)
+        else:
+            print var
     
-vertexFaces = orientMeshFaces(mesh)
-
-objective, distances = minimizeMesh(vertices, vertexFaces, q, 100, 0.001, vertices, 0.5)
-numspeeds = 10
-distance = []
+    if showResult:
+        rs.HideObject(meshi)
+        V = []
+        for i in range(0, len(vertices)):
+            V.append((vertices[i, 0], vertices[i, 1], vertices[i, 2]))
+        rs.AddMesh(V, connec)
+        
+    return vertices, distances
 
 def convergenceStudy(speed):
     print '----'
@@ -148,21 +140,3 @@ def convergenceStudy(speed):
             delimiter = ",")
     except:
         pass
-
-"""
-for i in range(numspeeds):
-    speed = (i+1)/numspeeds
-    convergenceStudy(speed)
-"""
-
-# convergenceStudy(0.75)
-# convergenceStudy(0.76)
-
-# minimizeMesh(vertices, vertexFaces, q, itermax, lmax, vertices, 0.5)
-    
-if showResult:
-    rs.HideObject(meshi)
-    V = []
-    for i in range(0, len(newVertices)):
-        V.append((newVertices[i, 0], newVertices[i, 1], newVertices[i, 2]))
-    rs.AddMesh(V, connec)
