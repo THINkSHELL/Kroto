@@ -5,23 +5,20 @@ from imp import reload
 import MeshMinimize as mm
 import rhinoscriptsyntax as rs
 import timeit
+import clr
 
 reload(mm)
+
+clr.EnableProfiler(True)
 
 mm.debug = 0
 mm.graphic = 0
 mm.showResult = 0
 
 lmax = 0.001
-
 itermax = 1000
 
 mesh = rs.GetObject("select mesh", rs.filter.mesh)
-
-"""objective, distances = mm.minimizeMesh(mesh, q=None, itermax=itermax,
-                                    lmax=lmax, reference=None, speed=1,
-                                    method='fixed-point')
-"""
 
 def wrapper(func, *args, **kwargs):
     def wrapped():
@@ -35,13 +32,25 @@ grad = wrapper(mm.minimizeMesh, mesh, q=None, itermax=itermax,
 fix = wrapper(mm.minimizeMesh, mesh, q=None, itermax=itermax,
                                     lmax=lmax, reference=None, speed=1,
                                     method='fixed-point')
-                                    
-timegrad = timeit.timeit(grad, number=1)
-timefix = timeit.timeit(fix, number=1)
+
+def print_profile():
+    for p in clr.GetProfilerData():
+        print 'done'
+        print '%s\t%d\t%d\t%d' % (p.Name, p.InclusiveTime, p.ExclusiveTime, p.Calls)
+
+objective, distances = mm.minimizeMesh(mesh, q=None, itermax=itermax,
+                                    lmax=lmax, reference=None, speed=1,
+                                    method='fixed-point')
+
+#print_profile()
+
+"""
+timegrad = timeit.timeit(grad, number=3)
+timefix = timeit.timeit(fix, number=3)
 
 print 'grad : {}'.format(timegrad)
 print 'fix : {}'.format(timefix)
-
+"""
 """
 numspeeds = 10
 distance = []
