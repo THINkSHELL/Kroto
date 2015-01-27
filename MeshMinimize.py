@@ -6,7 +6,19 @@ import vectorWorks as vw
 import rhinoscriptsyntax as rs
 import Rhino
 
+debug = 0
+graphic = 0
+showResult = 1
+lmax = 0.01
+itermax = 10
+speed = 1
+method = 'fixed-point'
+fixedCableEnds = True
+
+
 def upwardFace(x1, x2, x3):
+    # ??? unnecessary, equations are already invariant by faces permutations
+    # around a vertex ???
     """
     v2 = rs.VectorCreate(x2, x1)
     v3 = rs.VectorCreate(x3, x1)
@@ -15,8 +27,6 @@ def upwardFace(x1, x2, x3):
     a = rs.VectorDotProduct(vv, z)
     return a > 0
     """
-    # unnecessary, eqautions are already invariant by faces permutations around 
-    # a vertex
     return True
 
 def orientMeshFaces(mesh, connec):
@@ -34,10 +44,12 @@ def orientMeshFaces(mesh, connec):
                 if debug: print 'flip'
     return vertexFaces
 
-def iterateVertex(i, vertices, vertexFaces, q, var, speed, method):
+def iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, var):
     qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
     qMiX2 = [0, 0, 0]
-    qli = 0
+    ql2i = 0
+    qli = sum(ql[i])
+    qliX2 = [0, 0, 0]
     j = 0
     if debug: print '####'
     if debug: print vertices[i]
@@ -45,7 +57,7 @@ def iterateVertex(i, vertices, vertexFaces, q, var, speed, method):
         x2 = vertices[vertexFaces[(i, j)][1]]
         x3 = vertices[vertexFaces[(i, j)][2]]
         x23 = vw.matminus(x3, x2)
-        qij = q[vertexFaces[(i, j)][1]]
+        qij = qs[vertexFaces[(i, j)][1]]
         qMij = vw.matmul(qij, 
                   vw.matminus(
                     vw.matmul(vw.dotproduct(x23, x23), vw.id),
@@ -54,31 +66,56 @@ def iterateVertex(i, vertices, vertexFaces, q, var, speed, method):
                         )
         qMi = vw.matplus(qMi, qMij)
         qMiX2 = vw.matplus(qMiX2, vw.matmul(qMij, x2))
-        qli += qij * vw.dotproduct(x23, x23)
+        ql2i += qij * vw.dotproduct(x23, x23)
         if debug: 
-            print (i, j)
-            print x2, x3
-            print x23
-            print q
-            print qMij
-            print vw.matmul(qMij, x2)
-            print qli
-            print '---'
+            print ''.join([str((i, j)), '\n', str(x2), str(x3), '\n', str(x23), '\n', str(ql), '\n', str(qMij)])
+            print str(vw.matmul(qMij, x2)) + '\n' + str(ql2i) + '\n' + '---'
         j += 1
-    if debug: print qMi
-    if debug: print qMiX2
+    for j, v in enumerate(nCable[i]):
+        qliX2 = vw.matplus(qliX2, vw.matmul(ql[i][j], vertices[v]))
+    if debug: print qMi + '\n' + qMiX2
     if method == 'gradient':
-        newVertex = vw.matplus(vertices[i], 
-                        vw.matmul(speed, 
+        newVertex = vw.matplus(
+                        vertices[i],
+                        vw.matmul(
+                            speed,
                             vw.matminus(
-                                        vw.matmul(vw.inverse(qMi), qMiX2),
-                                        vertices[i]
-                                       )
-                            ))
+                                vw.matmul(
+                                    vw.inverse(
+                                        vw.matplus(
+                                            qMi,
+                                            vw.matmul(qli, vw.id)
+                                        )
+                                    ),
+                                    vw.matplus(
+                                        qMiX2,
+                                        qliX2
+                                    )
+                                ),
+                                vertices[i]
+                            )
+                        )
+                    )
     elif method == 'fixed-point':
-        newVertex = vw.matplus( vw.matmul(speed/qli, vw.matminus(qMiX2,
-                                                vw.matmul(qMi, vertices[i]))),
-                                vertices[i] )
+        newVertex = vw.matplus( 
+                        vw.matmul(
+                            speed/(ql2i+qli), 
+                            vw.matminus(
+                                vw.matplus(
+                                    qMiX2,
+                                    qliX2
+                                ),
+                                vw.matmul(
+                                    vw.matplus(
+                                        qMi,
+                                        vw.matmul(qli, vw.id)
+                                    ),
+                                    vertices[i]
+                                )
+                            )
+                        ),
+                        vertices[i]
+                    )
     if (vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
                        vw.matminus(newVertex, vertices[i]))
         > var):
@@ -86,14 +123,13 @@ def iterateVertex(i, vertices, vertexFaces, q, var, speed, method):
                        vw.matminus(newVertex, vertices[i]))
     return var, newVertex
     
-def iterateOneStep(vertices, vertexFaces, naked, q, iter, speed, method):
+def iterateOneStep(vertices, vertexFaces, fixed, qs, ql, nCable, iter):
     newVertices = copy.deepcopy(vertices)
     iter += 1
     var = 0
     for i in range(len(vertices)):
-        if not naked[i]:
-            var, newVertices[i] = iterateVertex(i, vertices, vertexFaces,
-                                                q, var, speed, method)
+        if not fixed[i]:
+            var, newVertices[i] = iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, var)
     vertices = copy.deepcopy(newVertices)
     return iter, var, vertices
     
@@ -107,9 +143,37 @@ def meshDistance(vertices, objective):
                                      vw.matminus(objective[i], vertices[i]))
     return distance
     
-def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5,
-                 method='gradient'):
-    if not q: q = [1 for i in range(rs.MeshFaceCount(mesh))]
+def defineCables(cables, qCables, vertices, naked, fixed):
+    tol = rs.UnitAbsoluteTolerance()
+    temp = [[] for i in cables]
+    ql = [[] for i in vertices]
+    nCable = [[] for i in vertices]
+    for v, vertex in enumerate(vertices):
+        if naked[v]:
+            for i, cable in enumerate(cables):
+                if rs.Distance(
+                   rs.EvaluateCurve(cable, rs.CurveClosestPoint(cable, vertex)),
+                   vertex
+                   ) < tol:
+                    temp[i].append(v)
+                    if ( fixedCableEnds and 
+                         min(rs.Distance(rs.CurveEndPoint(cable), vertex),
+                           rs.Distance(rs.CurveStartPoint(cable), vertex)) < tol
+                       ):
+                        if debug: rs.AddPoint(vertex)
+                        fixed[v] = True
+    for i, cable in enumerate(cables):
+        temp[i].sort(key = lambda v: rs.CurveClosestPoint(cable, vertices[v]))
+        for j in range(len(temp[i])):
+            if ( (not fixed[temp[i][j]]) and j and (j-len(temp[i])+1) ):
+                nCable[temp[i][j]].append(temp[i][j-1])
+                nCable[temp[i][j]].append(temp[i][j+1])
+                ql[temp[i][j]].append(qCables[i])
+                ql[temp[i][j]].append(qCables[i])
+    return ql, nCable, fixed
+    
+def minimizeMesh(mesh, cables=None, fixed=None, qs=None, qCables=None, reference=None):
+    if not qs: qs = [1 for i in range(rs.MeshFaceCount(mesh))]
     if graphic or showResult: meshi = mesh
     oldVertices = rs.MeshVertices(mesh)
     vertices = [[oldVertices[i][0], oldVertices[i][1], oldVertices[i][2]] 
@@ -118,14 +182,19 @@ def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5,
     connec = rs.MeshFaceVertices(mesh)
     vertexFaces = orientMeshFaces(mesh, connec)
     naked = rs.MeshNakedEdgePoints(mesh)
-    
+    if not fixed:
+        if not cables:
+            fixed = naked
+        else:
+            fixed = [False for i in vertices]
+    if cables:
+        if not qCables: qCables = [1 for i in cables]
+        ql, nCable, fixed = defineCables(cables, qCables, oldVertices, naked, fixed)
+            
     iter = 0
     var = 2*lmax
-    distances = []
     while (iter < itermax) & (var > lmax):
-        iter, var, vertices = iterateOneStep(vertices, vertexFaces, naked,
-                                             q, iter, speed, method)
-        #distances.append(meshDistance(vertices, reference))
+        iter, var, vertices = iterateOneStep(vertices, vertexFaces, fixed, qs, ql, nCable, iter)
         if graphic:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
@@ -139,18 +208,4 @@ def minimizeMesh(mesh, q=None, itermax=10, lmax=0.01, reference=None, speed=0.5,
         rs.HideObject(meshi)
         rs.AddMesh(vertices, connec)
         
-    return vertices, distances
-
-def convergenceStudy(speed):
-    print '----'
-    print speed
-    distance = minimizeMesh(
-                vertices, vertexFaces, q, 100, 0.001, vertices, speed)[1][::-1]
-    print distance
-    try:
-        np.savetxt(
-            "C:\\Users\\Pierre\\Desktop\\" + speed + ".csv",
-            np.asarray(distance),
-            delimiter = ",")
-    except:
-        pass
+    return vertices

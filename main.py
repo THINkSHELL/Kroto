@@ -13,45 +13,64 @@ clr.EnableProfiler(True)
 
 mm.debug = 0
 mm.graphic = 0
-mm.showResult = 0
+mm.showResult = 1
+mm.lmax = 0.001
+mm.itermax = 100
+mm.speed = 1
+mm.method = 'fixed-point'
+mm.fixedCableEnds = True
 
-lmax = 0.001
-itermax = 1000
 
-mesh = rs.GetObject("select mesh", rs.filter.mesh)
+mesh = rs.GetObject("Select mesh", rs.filter.mesh)
+cables = rs.GetObjects("Select cables", rs.filter.curve)
+
+qCables = None
+if cables: qCables = [1000 for i in cables]
 
 def wrapper(func, *args, **kwargs):
     def wrapped():
         return func(*args, **kwargs)
     return wrapped
     
-grad = wrapper(mm.minimizeMesh, mesh, q=None, itermax=itermax,
-                                    lmax=lmax, reference=None, speed=0.7,
-                                    method='gradient')
-
-fix = wrapper(mm.minimizeMesh, mesh, q=None, itermax=itermax,
-                                    lmax=lmax, reference=None, speed=1,
-                                    method='fixed-point')
+call = wrapper(mm.minimizeMesh, mesh, cables, fixed=None, qs=None, qCables=qCables, reference=None)
 
 def print_profile():
     for p in clr.GetProfilerData():
         print 'done'
         print '%s\t%d\t%d\t%d' % (p.Name, p.InclusiveTime, p.ExclusiveTime, p.Calls)
 
-objective, distances = mm.minimizeMesh(mesh, q=None, itermax=itermax,
-                                    lmax=lmax, reference=None, speed=1,
-                                    method='fixed-point')
+objective = mm.minimizeMesh(mesh, cables, fixed=None, qs=None, qCables=qCables, reference=None)
 
 #print_profile()
 
 """
-timegrad = timeit.timeit(grad, number=3)
-timefix = timeit.timeit(fix, number=3)
+mm.speed = 0.7
+mm.method = 'gradient'
+timegrad = timeit.timeit(call, number=3)
+mm.speed = 1
+mm.method = 'fixed-point'
+timefix = timeit.timeit(call, number=3)
 
 print 'grad : {}'.format(timegrad)
 print 'fix : {}'.format(timefix)
 """
 """
+
+def convergenceStudy(speed):
+    print '----'
+    print speed
+    distance = minimizeMesh(
+                vertices, vertexFaces, q, 100, 0.001, vertices, speed)[1][::-1]
+    print distance
+    try:
+        np.savetxt(
+            "C:\\Users\\Pierre\\Desktop\\" + speed + ".csv",
+            distance,
+            delimiter = ",")
+    except:
+        pass
+
+
 numspeeds = 10
 distance = []
 
