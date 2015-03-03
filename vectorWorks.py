@@ -43,7 +43,10 @@ def matplus(A, B):
     elif type(A[0]) != list and type(B[0]) != list:
         res = [A[i] + B[i] for i in range(len(A))]
     else:
-        res = [[A[i][j]+B[i][j] for j in range(len(B[0]))] for i in range(len(A))]
+        try:
+            res = [[A[i][j]+B[i][j] for j in range(len(B[0]))] for i in range(len(A))]
+        except TypeError:
+            raise TypeError("Matrices dimensions not compatible: %s and %s" %(A, B))
     return res
     
 def matminus(A, B):

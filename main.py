@@ -27,6 +27,8 @@ cables = rs.GetObjects("Select cables", rs.filter.curve)
 qCables = None
 if cables: qCables = [1000 for i in cables]
 
+pressure = 100
+
 def wrapper(func, *args, **kwargs):
     def wrapped():
         return func(*args, **kwargs)
@@ -39,7 +41,7 @@ def print_profile():
         print 'done'
         print '%s\t%d\t%d\t%d' % (p.Name, p.InclusiveTime, p.ExclusiveTime, p.Calls)
 
-objective = mm.minimizeMesh(mesh, cables, fixed=None, qs=None, qCables=qCables, reference=None)
+objective = mm.minimizeMesh(mesh, cables, fixed=None, qs=None, qCables=qCables, reference=None, P=pressure)
 
 #print_profile()
 
