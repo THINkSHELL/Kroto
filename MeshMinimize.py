@@ -1,80 +1,93 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-Implements the Stress Density Method as a Rhino mesh solver
-Takes a problem defined as a mesh, edges conditions and solver options
-Returns a mesh close to a minimal surface
+"""Implements the Stress Density Method as a Rhino mesh solver
+Takes a problem defined as a triangular mesh (working with quadrangular 
+meshes as well would take a lot of rewrite), edges conditions and solver
+options.
+
+Returns a mesh close to a minimal surface. The result is a true minimal
+surface if the edges are fixed, pressure null and the method iterated 
+until density coefficients yield a uniform stress field.
 """
 
 import copy
-import vectorWorks as vw
+import vectorworks as vw
 import rhinoscriptsyntax as rs
+import meshminimizehelpers as mmh
 
-#Define default options for the solver
-debug = 0
-graphic = 0
-showResult = 1
-lmax = 0.01
-itermax = 10
-speed = 1
-method = 'fixed-point'
-fixedCableEnds = True
+# Define default options for the solver
+# DEBUG = verbose option
+# GRAPHIC = build every itereation mesh in Rhino (stand-alone script)
+# SHOW_RESULT = build the resulting mesh in Rhino (stand-alone script)
+# MAX_DISP = maximum displacement for the break criterion of the
+#           convergence algorithm
+# MAX_ITER = maximum number of iterations in the convergence algorithm
+# SPEED = displacement speed at each iteration (necessary for stability
+#         of the gradient method)
+# METHOD = 'fixed-point' or 'gradient'
+# FIXED_CABLE_ENDS = cables ends are considered fixed
+DEBUG = 0
+GRAPHIC = 0
+SHOW_RESULT = 0
+MAX_DISP = 0.01
+MAX_ITER = 10
+SPEED = 1
+METHOD = 'fixed-point'
+FIXED_CABLE_ENDS = True
 
-def upwardFace(n, x1, x2, x3):
-    """
-    Returns True if the face orientation defined by the order of the passed in 
-    points is the same as that of the mesh, passed by the normal n
-    """
-    v2 = rs.VectorCreate(x2, x1)
-    v3 = rs.VectorCreate(x3, x1)
-    vv = rs.VectorCrossProduct(v2, v3)
-    a = rs.VectorDotProduct(vv, n)
-    return a > 0
-
-def orientMeshFaces(mesh, connec):
-    """
-    Orients faces around a node in a mesh to a consistant order and normal direction
-    Arguments:
-        mesh the mesh in RhinoCommon type
-        connec lists of connected points for each point in the mesh
-    Returns:
-        vertexFaces list of faces adjacent to a node
-    """
+def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
+    """Updates the position of a node in the mesh
     
-    normals = rs.MeshFaceNormals(mesh)
-    vertices = rs.MeshVertices(mesh)
-    vertexFaces = {}
-    for i, vertex in enumerate(vertices):
-        for j, face in enumerate(rs.MeshVertexFaces(mesh, i)):
-            #Find the three distinct points, 4th is redundant in triangular meshes
-            #and remove current point from the set
-            others = list(set(connec[face]) - {i, })
-            [x2, x3] = [vertices[n] for n in others]
-            if upwardFace(normals[i], vertex, x2, x3):
-                vertexFaces[(i, j)] = [i, others[0], others[1]]
-                if debug: print 'not flip'
-            else:
-                vertexFaces[(i, j)] = [i, others[1], others[0]]
-                if debug: print 'flip'
-    return vertexFaces
-
-def iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, P, var):
-    """
-    Update the position of a node in the mesh
     Arguments:
-        i the node number in the mesh
-        vertices the list of the mesh nodes
-        vertexFaces the list of faces adjacent to a node
-        qs the stress density for all faces in the mesh
-        ql the cable force density
-        nCable the list of cables
-        var the current maximum displacement in the iteration
+      i = the node number in the mesh
+      vertices = the list of the mesh nodes
+      vertex_faces = the list of faces adjacent to a node
+      qs = the stress density for all faces in the mesh
+      ql = the cable force density
+      n_cable = the list of cables
+      var = the current maximum displacement in the iteration
     Returns
-        var: the updated maximum displacement
-        newVertex: the updated position of the node
+      var = the updated maximum displacement
+      newVertex = the updated position of the node
     """
     
+    """First we initialize the intermediate vectors for calculation
+    All numberings (usually indexed by j) are relative to the current 
+    vertex, i.
+    
+    .  = vector dot-product ( [n,1] . [n,1] -> [1,1] )
+    /\ = vector cross-product ( [n,1] /\ [n,1] -> [n,1] )
+    x  = vector kronecker product ( [n,1] x [n,1] -> [n,n] )
+    
+    m_i = faces around the vertex i
+    n_i = cables around the vertex i
+    X_2j, X_3j = points 2 and 3 of the face #j around the vertex i, 
+                 [3x1] vector
+    X_2j3j = X_3j - X_2j = vector from 2j to 3j, [3x1] vector
+    
+    M_(i,j) = (X_2j3j . X_2j3j)*Id - (X_2j3j x X_2j3j)
+              [3,3] matrix representing the dependant faces areas around
+              the vertex i
+    
+    qs_j  = face number j surface stress density coefficient
+    ql_j  = cable segment number j force density coefficient (for points
+            in the middle of a cable, count each side once)
+    P     = pressure (uniform scalar at the moment)
+    
+    qMi   = sum( j = [1, m_i]; qs_j * M_(i,j) )
+          = local stiffness matrix, [3x3] matrix
+    qMiX2 = sum( j = [1, m_i]; qs_j * M_(i,j) * X_2j ) 
+          = local membrane forces on the vertex, [3x1] vector
+    ql2i  = sum( j = [1, m_i]; qs_j * l_ij^2 ) 
+          = local membrane stifness coefficient, scalar
+    qli   = sum( j = [1, n_i]; ql_j )
+          = local cable stifness coefficient, scalar
+    qliX2 = sum( j = [1, n_i]; ql_j * M_(i,j) * X_2j ) 
+          = local cable forces on the vertex, [3x1] vector
+    PX2X3 = sum( j = [1, m_i]; P * X_2j /\ X_3j ) 
+          = pressure membrane forces around the vertex, [3x1] vector
+    """
     qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
     qMiX2 = [0, 0, 0]
     ql2i = 0
@@ -84,39 +97,64 @@ def iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, P, var):
         qli = 0
     qliX2 = [0, 0, 0]
     PX2X3 = [0, 0, 0]
+    
     j = 0
-    if debug: print '####'
-    if debug: print vertices[i]
-    while vertexFaces.get((i, j), 0):
-        x2 = vertices[vertexFaces[(i, j)][1]]
-        x3 = vertices[vertexFaces[(i, j)][2]]
-        x23 = vw.matminus(x3, x2)
-        qij = qs[vertexFaces[(i, j)][1]]
+    
+    if DEBUG: print '####'
+    if DEBUG: print vertices[i]
+    
+    # Iterate for faces j around current vertex i
+    while vertex_faces.get((i, j), 0): # Face exists in vertex_faces table
+        x2 = vertices[vertex_faces[(i, j)][1]] # = X_2j, 3D point, [3x1] vector
+        x3 = vertices[vertex_faces[(i, j)][2]] # = X_3j, 3D point, [3x1] vector
+        x23 = vw.matminus(x3, x2) # = vector X_2j3j, [3x1] vector
+        qij = qs[vertex_faces[(i, j)][1]] # = qs_j = Surface stress density coef
+        
+        # qMij = qs_j * M_(i,j)
+        # M_(i,j) = (X_2j3j . X_2j3j)*Id - (X_2j3j x X_2j3j)
         qMij = vw.matmul(qij, 
                   vw.matminus(
                     vw.matmul(vw.dotproduct(x23, x23), vw.id),
                     vw.veckronproduct(x23, x23)
                            )
                         )
+                        
+        # update qMi and qMiX2 running sums
         qMi = vw.matplus(qMi, qMij)
         qMiX2 = vw.matplus(qMiX2, vw.matmul(qMij, x2))
+        
+        # ql2i = sum( j = [1, m_i]; qs_j * l_ij^2 ), running sum update, scalar
         ql2i += qij * vw.dotproduct(x23, x23)
+        
+        # PX2X3 = sum( j = [1, m_i]; P * X_2j /\ X_3j ), 
+        # running sum update, [3,1] vector
         PX2X3 = vw.matplus(PX2X3, vw.matmul(P, vw.crossproduct(x2, x3)))
-        if debug: 
-            print ''.join([str((i, j)), '\n', str(x2), str(x3), '\n', str(x23), '\n', str(ql), '\n', str(qMij)])
-            print str(vw.matmul(qMij, x2)) + '\n' + str(ql2i) + '\n' + '---'
+        
+        if DEBUG: 
+            print '\n'.join(
+                          [str((i, j)), str(x2), str(x3), str(x23), str(ql),
+                          str(qMij), vw.matmul(qMij, x2), str(ql2i), '---'])
         j += 1
-    if nCable:
-        for j, v in enumerate(nCable[i]):
+        #END while
+        
+    if DEBUG:
+        print '\n'.join([qMi, qMiX2, P, PX2X3])
+        
+    # Iterate for cables segments j around vertex i
+    if n_cable:
+        for j, v in enumerate(n_cable[i]):
+            # qliX2 = qliX2 = sum( j = [1, n_i]; ql_j * M_(i,j) * X_2j ),
+            # Running sum update, [3x1] vector.
             qliX2 = vw.matplus(qliX2, vw.matmul(ql[i][j], vertices[v]))
-    if debug: print qMi + '\n' + qMiX2
-    print P
-    print PX2X3
-    if method == 'gradient':
+            
+    # Do the actual work here, both methods
+    # X_i(t+1) = X_i(t) + SPEED * 
+    #                        ((qMi + qli)^-1 . (qMiX2 + qliX2 + PX2X3) - X_i(t))
+    if METHOD == 'gradient':
         newVertex = vw.matplus(
                         vertices[i],
                         vw.matmul(
-                            speed,
+                            SPEED,
                             vw.matminus(
                                 vw.matmul(
                                     vw.inverse(
@@ -134,11 +172,13 @@ def iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, P, var):
                             )
                         )
                     )
-    elif method == 'fixed-point':
+    # X_i(t+1) = X_i(t) + SPEED/(ql2i + qli) * 
+    #                                (qMiX2 + qliX2 +PX2X3 - (qMi + qli).X_i(t))
+    elif METHOD == 'fixed-point':
         newVertex = vw.matplus(
                       vertices[i],
                         vw.matmul(
-                            speed/(ql2i+qli), 
+                            SPEED/(ql2i+qli), 
                             vw.matminus(
                                 vw.matplus(
                                     qMiX2,
@@ -154,71 +194,86 @@ def iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, P, var):
                             )
                         )
                     )
+                    
+    # Update displacement criterion, if needed.
+    # max(squared disp) is not a really good criterion, to be improved..
     if (vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
                        vw.matminus(newVertex, vertices[i]))
         > var):
         var = vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
                        vw.matminus(newVertex, vertices[i]))
+                       
     return var, newVertex
+
+
+def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P, iter):
+    """Updates all nodes on the mesh once
     
-def iterateOneStep(vertices, vertexFaces, fixed, qs, ql, nCable, P, iter):
+    Arguments:
+      vertices = list of mesh vertices, from rs.MeshVertices(mesh)
+      vertex_faces = list of list of faces connected a vertex,
+                     from orient_mesh_faces(mesh)
+      fixed = list of booleans, True if vertex is fixed
+      qs = list of surface stress density coefficients for each face
+      ql = list of cable force density, for each cable segment
+      n_cable = list of list of cables connected to a vertex
+      P = pressure
+      iter = current iteration number
+    Returns:
+      iter = updated iteration number
+      var = maximum squared displacement for this iteration
+      vertices = updated positions of vertices
+    """
+    
+    # Copy vertices to a new list, so that we do not overwrite it
     newVertices = copy.deepcopy(vertices)
     iter += 1
     var = 0
     for i in range(len(vertices)):
         if not fixed[i]:
-            var, newVertices[i] = iterateVertex(i, vertices, vertexFaces, qs, ql, nCable, P, var)
+            var, newVertices[i] = iterate_vertex(i, vertices, vertex_faces, qs,
+                                                 ql, n_cable, P, var)
     vertices = copy.deepcopy(newVertices)
     return iter, var, vertices
+
+
+def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
+                  reference=None, ql=None, n_cable=None, P=0):
+    """Iterates a mesh until it is close to a minimal surface in the 
+    sense of the surface density.
     
-def meshDistance(vertices, objective):
-    distance = 0
-    for i in range(len(vertices)):
-        if (vw.dotproduct(vw.matminus(objective[i], vertices[i]),
-                          vw.matminus(objective[i], vertices[i]))
-            > distance):
-            distance = vw.dotproduct(vw.matminus(objective[i], vertices[i]),
-                                     vw.matminus(objective[i], vertices[i]))
-    return distance
+    Arguments:
+      mesh = mesh to calculate, Rhino GUID
+      cables = polylines representing the cables
+      fixed = list of booleans, True if vertex is fixed
+      qs = list of surface stress density coefficients for each face
+      q_cables = list of force density coefficients for each cable
+      reference = reference mesh for comparisons, unused
+      ql = list of cable force density, for each cable segment
+      n_cable = list of list of cables connected to a vertex
+      P = pressure
+    Returns:
+        vertices = vertices at new position
+    """
     
-def defineCables(cables, qCables, vertices, naked, fixed):
-    tol = rs.UnitAbsoluteTolerance()
-    temp = [[] for i in cables]
-    ql = [[] for i in vertices]
-    nCable = [[] for i in vertices]
-    for v, vertex in enumerate(vertices):
-        if naked[v]:
-            for i, cable in enumerate(cables):
-                if rs.Distance(
-                   rs.EvaluateCurve(cable, rs.CurveClosestPoint(cable, vertex)),
-                   vertex
-                   ) < tol:
-                    temp[i].append(v)
-                    if ( fixedCableEnds and 
-                         min(rs.Distance(rs.CurveEndPoint(cable), vertex),
-                           rs.Distance(rs.CurveStartPoint(cable), vertex)) < tol
-                       ):
-                        if debug: rs.AddPoint(vertex)
-                        fixed[v] = True
-    for i, cable in enumerate(cables):
-        temp[i].sort(key = lambda v: rs.CurveClosestPoint(cable, vertices[v]))
-        for j in range(len(temp[i])):
-            if ( (not fixed[temp[i][j]]) and j and (j-len(temp[i])+1) ):
-                nCable[temp[i][j]].append(temp[i][j-1])
-                nCable[temp[i][j]].append(temp[i][j+1])
-                ql[temp[i][j]].append(qCables[i])
-                ql[temp[i][j]].append(qCables[i])
-    return ql, nCable, fixed
-    
-def minimizeMesh(mesh, cables=None, fixed=None, qs=None, qCables=None, reference=None, ql=None, nCable=None, P=0):
+    # Initialize
+    # qs defaults to 1 everywhere
+    # meshi remembers current mesh if we need to hide it in Rhino
+    # vertices strips RhinoCommon's 3D points to a bare 3-vector
+    # reference defaults to the initial mesh
+    # vertex faces is reordered from Rhino's mesh
+    # naked is extracted from Rhino
+    # fixed defaults to naked if edges are fixed, otherwise defined in
+    #                   mmh.define_cables
+    # ql, n_cable are defined by mmh.define_cables if necessary
+    # q_cables defaults to 1
     if not qs: qs = [1 for i in range(rs.MeshFaceCount(mesh))]
-    if graphic or showResult: meshi = mesh
+    if GRAPHIC or SHOW_RESULT: meshi = mesh
     oldVertices = rs.MeshVertices(mesh)
     vertices = [[oldVertices[i][0], oldVertices[i][1], oldVertices[i][2]] 
                 for i in range(len(oldVertices))]
     if not reference: reference = vertices
-    connec = rs.MeshFaceVertices(mesh)
-    vertexFaces = orientMeshFaces(mesh, connec)
+    vertex_faces = mmh.orient_mesh_faces(mesh)
     naked = rs.MeshNakedEdgePoints(mesh)
     if not fixed:
         if not cables:
@@ -226,17 +281,22 @@ def minimizeMesh(mesh, cables=None, fixed=None, qs=None, qCables=None, reference
         else:
             fixed = [False for i in vertices]
     ql = None
-    nCable = None
+    n_cable = None
     if cables:
-        if not qCables: qCables = [1 for i in cables]
-        if not (ql and nCable and fixed):
-            ql, nCable, fixed = defineCables(cables, qCables, oldVertices, naked, fixed)
+        if not q_cables: q_cables = [1 for i in cables]
+        if not (ql and n_cable and fixed):
+            ql, n_cable, fixed = mmh.define_cables(cables, q_cables, 
+                                                   oldVertices, naked, fixed)
     
+    # Initialize loop
     iter = 0
-    var = 2*lmax
-    while (iter < itermax) & (var > lmax):
-        iter, var, vertices = iterateOneStep(vertices, vertexFaces, fixed, qs, ql, nCable, P, iter)
-        if graphic:
+    var = 2*MAX_DISP
+    
+    # Loop while we can, get some display if wanted
+    while (iter < MAX_ITER) & (var > MAX_DISP):
+        iter, var, vertices = iterate_one_step(vertices, vertex_faces, fixed,
+                                               qs, ql, n_cable, P, iter)
+        if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
             print (u"itération {},"
@@ -245,8 +305,8 @@ def minimizeMesh(mesh, cables=None, fixed=None, qs=None, qCables=None, reference
         else:
             print var
     
-    #if showResult:
-    #    rs.HideObject(meshi)
-    #    rs.AddMesh(vertices, connec)
+    if SHOW_RESULT:
+        rs.HideObject(meshi)
+        rs.AddMesh(vertices, connec)
         
     return vertices
