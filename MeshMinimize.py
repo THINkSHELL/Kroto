@@ -36,13 +36,14 @@ SPEED = 1
 METHOD = 'fixed-point'
 FIXED_CABLE_ENDS = True
 
-def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P3, var):
+def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P3, var):
     """Updates the position of a node in the mesh
     
     Arguments:
       i = the node number in the mesh
       vertices = the list of the mesh nodes
       vertex_faces = the list of faces adjacent to a node
+      naked = list of booleans, True if vertex is on a naked edge
       qs = the stress density for all faces in the mesh
       ql = the cable force density
       n_cable = the list of list of cable segments from each vertex
@@ -127,14 +128,13 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P3, var):
         # ql2i = sum(j = [1, m_i]; qs_j * l_ij^2), running sum update, scalar
         ql2i += qij * vw.dotproduct(x23, x23)
         
-        # Here we only sum P forces for the typical nodes, where the 
-        # term in /\X_1 disappears. Edge nodes are corrected below, in 
-        # the cables loop as only non-fixed edge nodes are interresting
-        # (i.e. on a cable)
-        # PX2X3 = sum(j = [1, m_i]; P/3 * X_2j /\ X_3j), 
+        # PX2X3 = sum(j = [1, m_i]; P/3 * (X_2j/\X_3j + X_2j3j/\X_i), 
         # running sum update, [3,1] vector
         PX2X3 = vw.matplus(PX2X3, vw.matmul(P3, vw.crossproduct(x2, x3)))
-        #PX2X3 = vw.matplus(PX2X3, vw.matmul(P3, vw.crossproduct(x23, vertices[i])))
+        # The contour term is non-zero only for edge nodes
+        if naked[i]:
+            PX2X3 = vw.matplus(PX2X3, 
+                               vw.matmul(P3, vw.crossproduct(x23, vertices[i])))
         
         if DEBUG: 
             print '\n'.join(
@@ -152,18 +152,6 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P3, var):
             # qliX2 = qliX2 = sum( j = [1, n_i]; ql_j * M_(i,j) * X_2j ),
             # Running sum update, [3x1] vector.
             qliX2 = vw.matplus(qliX2, vw.matmul(ql[i][j], vertices[v]))
-            
-            # Let's correct the /\X_1 term in pression forces for edge
-            # nodes on a cable, as promised
-            # PX2X3 = PX2X3 + P/3 * (X_3_mi - X_2_1)/\X_i
-            # The alternated sign running sum hack only works for points
-            # connected to 2 cable segments, which is probably fine 
-            # since points on cables ends are usually fixed and points 
-            # on multiple cables will be on a mesh split line and 
-            # computed once for each mesh region where they have only 
-            # two cables.
-            PX2X3 = vw.matminus(PX2X3, vw.matmul((-1)^j, 
-                                     vw.crossproduct(vertices[v], vertices[i])))
             
     # Do the actual work here, both methods
     # X_i(t+1) = X_i(t) + SPEED / (qMi + qli) * 
@@ -224,13 +212,15 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P3, var):
     return var, newVertex
 
 
-def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P3, iter):
+def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P3,
+                     iter):
     """Updates all nodes on the mesh once
     
     Arguments:
       vertices = list of mesh vertices, from rs.MeshVertices(mesh)
       vertex_faces = list of list of faces connected a vertex,
                      from orient_mesh_faces(mesh)
+      naked = list of booleans, True if vertex is on a naked edge
       fixed = list of booleans, True if vertex is fixed
       qs = list of surface stress density coefficients for each face
       ql = list of cable force density, for each cable segment
@@ -249,8 +239,9 @@ def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P3, iter):
     var = 0
     for i in range(len(vertices)):
         if not fixed[i]:
-            var, newVertices[i] = iterate_vertex(i, vertices, vertex_faces, qs,
-                                                 ql, n_cable, P3, var)
+            var, newVertices[i] = iterate_vertex(i, vertices, vertex_faces, 
+                                                 naked, qs, ql, n_cable, P3, 
+                                                 var)
     vertices = copy.deepcopy(newVertices)
     return iter, var, vertices
 
@@ -312,8 +303,8 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     
     # Loop while we can, get some display if wanted
     while (iter < MAX_ITER) & (var > MAX_DISP):
-        iter, var, vertices = iterate_one_step(vertices, vertex_faces, fixed,
-                                               qs, ql, n_cable, P/3, iter)
+        iter, var, vertices = iterate_one_step(vertices, vertex_faces, naked, 
+                                              fixed, qs, ql, n_cable, P/3, iter)
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
