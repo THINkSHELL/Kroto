@@ -36,7 +36,7 @@ SPEED = 1
 METHOD = 'fixed-point'
 FIXED_CABLE_ENDS = True
 
-def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P3, var):
+def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
     """Updates the position of a node in the mesh
     
     Arguments:
@@ -75,7 +75,7 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P3, var):
     qs_j  = face number j surface stress density coefficient
     ql_j  = cable segment number j force density coefficient (for points
             in the middle of a cable, count each side once)
-    P3     = pressure / 3 (uniform scalar at the moment)
+    P6     = pressure / 3 (uniform scalar at the moment)
     
     qMi   = sum(j = [1, m_i]; qs_j * M_(i,j))
           = local stiffness matrix, [3x3] matrix
@@ -87,7 +87,7 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P3, var):
           = local cable stifness coefficient, scalar
     qliX2 = sum(j = [1, n_i]; ql_j * M_(i,j) * X_2j) 
           = local cable forces on the vertex, [3x1] vector
-    PX2X3 = sum(j = [1, m_i]; P/3 * (X_2j/\X_3j + X_2j3j/\X_i)
+    PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i)
           = pressure membrane forces around the vertex, [3x1] vector
     """
     qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
@@ -128,13 +128,13 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P3, var):
         # ql2i = sum(j = [1, m_i]; qs_j * l_ij^2), running sum update, scalar
         ql2i += qij * vw.dotproduct(x23, x23)
         
-        # PX2X3 = sum(j = [1, m_i]; P/3 * (X_2j/\X_3j + X_2j3j/\X_i), 
+        # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i), 
         # running sum update, [3,1] vector
-        PX2X3 = vw.matplus(PX2X3, vw.matmul(P3, vw.crossproduct(x2, x3)))
+        PX2X3 = vw.matplus(PX2X3, vw.matmul(P6, vw.crossproduct(x2, x3)))
         # The contour term is non-zero only for edge nodes
         if naked[i]:
             PX2X3 = vw.matplus(PX2X3, 
-                               vw.matmul(P3, vw.crossproduct(x23, vertices[i])))
+                               vw.matmul(P6, vw.crossproduct(x23, vertices[i])))
         
         if DEBUG: 
             print '\n'.join(
@@ -212,7 +212,7 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P3, var):
     return var, newVertex
 
 
-def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P3,
+def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
                      iter):
     """Updates all nodes on the mesh once
     
@@ -225,7 +225,7 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P3,
       qs = list of surface stress density coefficients for each face
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cables connected to a vertex
-      P3 = pressure / 3
+      P6 = pressure / 3
       iter = current iteration number
     Returns:
       iter = updated iteration number
@@ -240,7 +240,7 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P3,
     for i in range(len(vertices)):
         if not fixed[i]:
             var, newVertices[i] = iterate_vertex(i, vertices, vertex_faces, 
-                                                 naked, qs, ql, n_cable, P3, 
+                                                 naked, qs, ql, n_cable, P6, 
                                                  var)
     vertices = copy.deepcopy(newVertices)
     return iter, var, vertices
@@ -304,7 +304,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     # Loop while we can, get some display if wanted
     while (iter < MAX_ITER) & (var > MAX_DISP):
         iter, var, vertices = iterate_one_step(vertices, vertex_faces, naked, 
-                                              fixed, qs, ql, n_cable, P/3, iter)
+                                              fixed, qs, ql, n_cable, P/6, iter)
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)

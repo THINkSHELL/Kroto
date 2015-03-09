@@ -146,3 +146,27 @@ def mesh_distance(vertices, objective):
             distance = vw.dotproduct(vw.matminus(objective[i], vertices[i]),
                                      vw.matminus(objective[i], vertices[i]))
     return distance
+    
+def mesh_closest_vertices(mesh, points):
+    """Finds the vertices of a mesh that are within the document's tolerance
+    of one of the points in the list.
+    Arguments:
+        mesh = a Rhino mesh
+        points = a list of Rhino points
+    Returns:
+        fixed = a list of booleans, True if the vertex is close to one of
+                the points
+    """
+    
+    import rhinoscriptsyntax as rs
+    
+    tol = rs.UnitAbsoluteTolerance()
+    vertices = rs.MeshVertices(mesh)
+    fixed = [False for i in vertices]
+    
+    for i, vertex in enumerate(vertices):
+        for point in points:
+            if rs.Distance(point, vertex) < tol:
+                fixed[i] = True
+                break
+    return fixed
