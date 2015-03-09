@@ -36,7 +36,7 @@ SPEED = 1
 METHOD = 'fixed-point'
 FIXED_CABLE_ENDS = True
 
-def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
+def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P3, var):
     """Updates the position of a node in the mesh
     
     Arguments:
@@ -45,7 +45,7 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
       vertex_faces = the list of faces adjacent to a node
       qs = the stress density for all faces in the mesh
       ql = the cable force density
-      n_cable = the list of cables
+      n_cable = the list of list of cable segments from each vertex
       var = the current maximum displacement in the iteration
     Returns
       var = the updated maximum displacement
@@ -59,6 +59,7 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
     .  = vector dot-product ( [n,1] . [n,1] -> [1,1] )
     /\ = vector cross-product ( [n,1] /\ [n,1] -> [n,1] )
     x  = vector kronecker product ( [n,1] x [n,1] -> [n,n] )
+    *  = classical multipliation of scalars, vectors or matrices
     
     m_i = faces around the vertex i
     n_i = cables around the vertex i
@@ -73,19 +74,19 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
     qs_j  = face number j surface stress density coefficient
     ql_j  = cable segment number j force density coefficient (for points
             in the middle of a cable, count each side once)
-    P     = pressure (uniform scalar at the moment)
+    P3     = pressure / 3 (uniform scalar at the moment)
     
-    qMi   = sum( j = [1, m_i]; qs_j * M_(i,j) )
+    qMi   = sum(j = [1, m_i]; qs_j * M_(i,j))
           = local stiffness matrix, [3x3] matrix
-    qMiX2 = sum( j = [1, m_i]; qs_j * M_(i,j) * X_2j ) 
+    qMiX2 = sum(j = [1, m_i]; qs_j * M_(i,j) * X_2j) 
           = local membrane forces on the vertex, [3x1] vector
-    ql2i  = sum( j = [1, m_i]; qs_j * l_ij^2 ) 
+    ql2i  = sum(j = [1, m_i]; qs_j * l_ij^2) 
           = local membrane stifness coefficient, scalar
-    qli   = sum( j = [1, n_i]; ql_j )
+    qli   = sum(j = [1, n_i]; ql_j)
           = local cable stifness coefficient, scalar
-    qliX2 = sum( j = [1, n_i]; ql_j * M_(i,j) * X_2j ) 
+    qliX2 = sum(j = [1, n_i]; ql_j * M_(i,j) * X_2j) 
           = local cable forces on the vertex, [3x1] vector
-    PX2X3 = sum( j = [1, m_i]; P * X_2j /\ X_3j ) 
+    PX2X3 = sum(j = [1, m_i]; P/3 * (X_2j/\X_3j + X_2j3j/\X_i)
           = pressure membrane forces around the vertex, [3x1] vector
     """
     qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
@@ -123,12 +124,17 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
         qMi = vw.matplus(qMi, qMij)
         qMiX2 = vw.matplus(qMiX2, vw.matmul(qMij, x2))
         
-        # ql2i = sum( j = [1, m_i]; qs_j * l_ij^2 ), running sum update, scalar
+        # ql2i = sum(j = [1, m_i]; qs_j * l_ij^2), running sum update, scalar
         ql2i += qij * vw.dotproduct(x23, x23)
         
-        # PX2X3 = sum( j = [1, m_i]; P * X_2j /\ X_3j ), 
+        # Here we only sum P forces for the typical nodes, where the 
+        # term in /\X_1 disappears. Edge nodes are corrected below, in 
+        # the cables loop as only non-fixed edge nodes are interresting
+        # (i.e. on a cable)
+        # PX2X3 = sum(j = [1, m_i]; P/3 * X_2j /\ X_3j), 
         # running sum update, [3,1] vector
-        PX2X3 = vw.matplus(PX2X3, vw.matmul(P, vw.crossproduct(x2, x3)))
+        PX2X3 = vw.matplus(PX2X3, vw.matmul(P3, vw.crossproduct(x2, x3)))
+        #PX2X3 = vw.matplus(PX2X3, vw.matmul(P3, vw.crossproduct(x23, vertices[i])))
         
         if DEBUG: 
             print '\n'.join(
@@ -147,9 +153,21 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
             # Running sum update, [3x1] vector.
             qliX2 = vw.matplus(qliX2, vw.matmul(ql[i][j], vertices[v]))
             
+            # Let's correct the /\X_1 term in pression forces for edge
+            # nodes on a cable, as promised
+            # PX2X3 = PX2X3 + P/3 * (X_3_mi - X_2_1)/\X_i
+            # The alternated sign running sum hack only works for points
+            # connected to 2 cable segments, which is probably fine 
+            # since points on cables ends are usually fixed and points 
+            # on multiple cables will be on a mesh split line and 
+            # computed once for each mesh region where they have only 
+            # two cables.
+            PX2X3 = vw.matminus(PX2X3, vw.matmul((-1)^j, 
+                                     vw.crossproduct(vertices[v], vertices[i])))
+            
     # Do the actual work here, both methods
-    # X_i(t+1) = X_i(t) + SPEED * 
-    #                        ((qMi + qli)^-1 . (qMiX2 + qliX2 + PX2X3) - X_i(t))
+    # X_i(t+1) = X_i(t) + SPEED / (qMi + qli) * 
+    #                        ((qMiX2 + qliX2 + PX2X3) - X_i(t))
     if METHOD == 'gradient':
         newVertex = vw.matplus(
                         vertices[i],
@@ -172,8 +190,8 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
                             )
                         )
                     )
-    # X_i(t+1) = X_i(t) + SPEED/(ql2i + qli) * 
-    #                                (qMiX2 + qliX2 +PX2X3 - (qMi + qli).X_i(t))
+    # X_i(t+1) = X_i(t) + SPEED / (ql2i + qli) * 
+    #                               (qMiX2 + qliX2 + PX2X3 - (qMi + qli).X_i(t))
     elif METHOD == 'fixed-point':
         newVertex = vw.matplus(
                       vertices[i],
@@ -206,7 +224,7 @@ def iterate_vertex(i, vertices, vertex_faces, qs, ql, n_cable, P, var):
     return var, newVertex
 
 
-def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P, iter):
+def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P3, iter):
     """Updates all nodes on the mesh once
     
     Arguments:
@@ -217,7 +235,7 @@ def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P, iter):
       qs = list of surface stress density coefficients for each face
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cables connected to a vertex
-      P = pressure
+      P3 = pressure / 3
       iter = current iteration number
     Returns:
       iter = updated iteration number
@@ -232,7 +250,7 @@ def iterate_one_step(vertices, vertex_faces, fixed, qs, ql, n_cable, P, iter):
     for i in range(len(vertices)):
         if not fixed[i]:
             var, newVertices[i] = iterate_vertex(i, vertices, vertex_faces, qs,
-                                                 ql, n_cable, P, var)
+                                                 ql, n_cable, P3, var)
     vertices = copy.deepcopy(newVertices)
     return iter, var, vertices
 
@@ -295,7 +313,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     # Loop while we can, get some display if wanted
     while (iter < MAX_ITER) & (var > MAX_DISP):
         iter, var, vertices = iterate_one_step(vertices, vertex_faces, fixed,
-                                               qs, ql, n_cable, P, iter)
+                                               qs, ql, n_cable, P/3, iter)
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
