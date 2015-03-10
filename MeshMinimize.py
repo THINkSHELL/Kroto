@@ -16,13 +16,19 @@ import vectorworks as vw
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
 
+
 # Define default options for the solver
 # DEBUG = verbose option
 # GRAPHIC = build every itereation mesh in Rhino (stand-alone script)
 # SHOW_RESULT = build the resulting mesh in Rhino (stand-alone script)
 # MAX_DISP = maximum displacement for the break criterion of the
 #           convergence algorithm
-# MAX_ITER = maximum number of iterations in the convergence algorithm
+# MAX_ITER = maximum number of iterations in the fixed-qs convergence 
+#            algorithm
+# MAX_ITER_QS = maximum number of iterations for the qs convergence 
+#               algorithm
+# MAX_DEV_SIGMA = maximum deviation around mean-value for the surface 
+#                 stresses
 # SPEED = displacement speed at each iteration (necessary for stability
 #         of the gradient method)
 # METHOD = 'fixed-point' or 'gradient'
@@ -32,6 +38,8 @@ GRAPHIC = 0
 SHOW_RESULT = 0
 MAX_DISP = 0.01
 MAX_ITER = 10
+MAX_ITER_QS = 10
+MAX_DEV_SIGMA = 1
 SPEED = 1
 METHOD = 'fixed-point'
 FIXED_CABLE_ENDS = True
@@ -50,7 +58,7 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
       var = the current maximum displacement in the iteration
     Returns
       var = the updated maximum displacement
-      newVertex = the updated position of the node
+      new_vertex = the updated position of the node
     """
     
     """First we initialize the intermediate vectors for calculation
@@ -157,7 +165,7 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
     # X_i(t+1) = X_i(t) + SPEED / (qMi + qli) * 
     #                        ((qMiX2 + qliX2 + PX2X3) - X_i(t))
     if METHOD == 'gradient':
-        newVertex = vw.matplus(
+        new_vertex = vw.matplus(
                         vertices[i],
                         vw.matmul(
                             SPEED,
@@ -181,7 +189,7 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
     # X_i(t+1) = X_i(t) + SPEED / (ql2i + qli) * 
     #                               (qMiX2 + qliX2 + PX2X3 - (qMi + qli).X_i(t))
     elif METHOD == 'fixed-point':
-        newVertex = vw.matplus(
+        new_vertex = vw.matplus(
                       vertices[i],
                         vw.matmul(
                             SPEED/(ql2i+qli), 
@@ -203,13 +211,13 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
                     
     # Update displacement criterion, if needed.
     # max(squared disp) is not a really good criterion, to be improved..
-    if (vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
-                       vw.matminus(newVertex, vertices[i]))
+    if (vw.dotproduct(vw.matminus(new_vertex, vertices[i]), 
+                       vw.matminus(new_vertex, vertices[i]))
         > var):
-        var = vw.dotproduct(vw.matminus(newVertex, vertices[i]), 
-                       vw.matminus(newVertex, vertices[i]))
+        var = vw.dotproduct(vw.matminus(new_vertex, vertices[i]), 
+                       vw.matminus(new_vertex, vertices[i]))
                        
-    return var, newVertex
+    return var, new_vertex
 
 
 def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
@@ -224,7 +232,7 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
       fixed = list of booleans, True if vertex is fixed
       qs = list of surface stress density coefficients for each face
       ql = list of cable force density, for each cable segment
-      n_cable = list of list of cables connected to a vertex
+      n_cable = list of list of cables segments connected to a vertex
       P6 = pressure / 3
       iter = current iteration number
     Returns:
@@ -234,22 +242,63 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
     """
     
     # Copy vertices to a new list, so that we do not overwrite it
-    newVertices = copy.deepcopy(vertices)
+    new_vertices = copy.deepcopy(vertices)
     iter += 1
     var = 0
     for i in range(len(vertices)):
         if not fixed[i]:
-            var, newVertices[i] = iterate_vertex(i, vertices, vertex_faces, 
+            var, new_vertices[i] = iterate_vertex(i, vertices, vertex_faces, 
                                                  naked, qs, ql, n_cable, P6, 
                                                  var)
-    vertices = copy.deepcopy(newVertices)
+    vertices = copy.deepcopy(new_vertices)
     return iter, var, vertices
+
+
+def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
+                     n_cable, P, meshi=None):
+    """Iterates the problem with qs fixed, until a pseudo-minimal 
+    surface is found.
+    Arguments:
+      vertices = list of mesh vertices, from rs.MeshVertices(mesh)
+      vertex_faces = list of list of faces connected a vertex,
+                     from orient_mesh_faces(mesh)
+      connec = connectivity matrix in the mesh, from 
+               rs.MeshFaceVertices(mesh)
+      naked = list of booleans, True if vertex is on a naked edge
+      fixed = list of booleans, True if vertex is fixed
+      qs = list of surface stress density coefficients for each face
+      ql = list of cable force density, for each cable segment
+      n_cable = list of list of cable segments attached to each vertex
+      P = pressure
+      meshi = save-state for graphical display
+    Returns:
+      vertices = updated positions of vertices
+    """
+    
+    # Initialize loop
+    iter = 0
+    var = 2*MAX_DISP
+    
+    # Loop while we can, get some display if wanted
+    while (iter < MAX_ITER) & (var > MAX_DISP):
+        iter, var, vertices = iterate_one_step(vertices, vertex_faces, 
+                                               naked, fixed, qs, ql,
+                                               n_cable, P/6, iter)
+        if GRAPHIC:
+            rs.HideObject(meshi)
+            meshi = rs.AddMesh(vertices, connec)
+            print (u"itération {},"
+                   u"\nDéplacement^2 maximum depuis "
+                   u"l'itération précedente : {} mm²").format(iter, var)
+        else:
+            print var
+    
+    return vertices
 
 
 def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
                   reference=None, ql=None, n_cable=None, P=0):
-    """Iterates a mesh until it is close to a minimal surface in the 
-    sense of the surface density.
+    """Iterates a mesh until it is close to a minimal surface.
     
     Arguments:
       mesh = mesh to calculate, Rhino GUID
@@ -259,31 +308,38 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
       q_cables = list of force density coefficients for each cable
       reference = reference mesh for comparisons, unused
       ql = list of cable force density, for each cable segment
-      n_cable = list of list of cables connected to a vertex
+      n_cable = list of list of cable segments connected to a vertex
       P = pressure
     Returns:
         vertices = vertices at new position
     """
     
+    #
     # Initialize
     # qs defaults to 1 everywhere
     # meshi remembers current mesh if we need to hide it in Rhino
     # vertices strips RhinoCommon's 3D points to a bare 3-vector
     # reference defaults to the initial mesh
-    # vertex faces is reordered from Rhino's mesh
+    # vertex_faces is reordered from Rhino's mesh
     # naked is extracted from Rhino
     # fixed defaults to naked if edges are fixed, otherwise defined in
     #                   mmh.define_cables
     # ql, n_cable are defined by mmh.define_cables if necessary
     # q_cables defaults to 1
-    if not qs: qs = [1 for i in range(rs.MeshFaceCount(mesh))]
-    if GRAPHIC or SHOW_RESULT: meshi = mesh
-    oldVertices = rs.MeshVertices(mesh)
-    vertices = [[oldVertices[i][0], oldVertices[i][1], oldVertices[i][2]] 
-                for i in range(len(oldVertices))]
-    if not reference: reference = vertices
+    #
+    
+    if not qs:
+        qs = [1 for i in range(rs.MeshFaceCount(mesh))]
+    if GRAPHIC or SHOW_RESULT:
+        meshi = mesh
+    old_vertices = rs.MeshVertices(mesh)
+    vertices = [[old_vertices[i][0], old_vertices[i][1], old_vertices[i][2]] 
+                for i in range(len(old_vertices))]
+    if not reference:
+        reference = vertices
     vertex_faces = mmh.orient_mesh_faces(mesh)
     naked = rs.MeshNakedEdgePoints(mesh)
+    connec = rs.MeshFaceVertices(mesh)
     if not fixed:
         if not cables:
             fixed = naked
@@ -292,27 +348,20 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     ql = None
     n_cable = None
     if cables:
-        if not q_cables: q_cables = [1 for i in cables]
+        if not q_cables:
+            q_cables = [1 for i in cables]
         if not (ql and n_cable and fixed):
             ql, n_cable, fixed = mmh.define_cables(cables, q_cables, 
-                                                   oldVertices, naked, fixed)
+                                                   old_vertices, naked, fixed)
     
-    # Initialize loop
-    iter = 0
-    var = 2*MAX_DISP
+    iter_qs = 0
+    dev_sigma = 2*MAX_DEV_SIGMA
     
-    # Loop while we can, get some display if wanted
-    while (iter < MAX_ITER) & (var > MAX_DISP):
-        iter, var, vertices = iterate_one_step(vertices, vertex_faces, naked, 
-                                              fixed, qs, ql, n_cable, P/6, iter)
-        if GRAPHIC:
-            rs.HideObject(meshi)
-            meshi = rs.AddMesh(vertices, connec)
-            print (u"itération {},"
-                   u"\nDéplacement^2 maximum depuis "
-                   u"l'itération précedente : {} mm²").format(iter, var)
-        else:
-            print var
+    while (iter_qs < MAX_ITER_QS) & (dev_sigma > MAX_DEV_SIGMA):
+        vertices = iterate_fixed_qs(vertices, vertex_faces, connec, naked, 
+                                    fixed, qs, ql, n_cable, P)
+        iter_qs += 1
+        dev_sigma, qs = mmh.update_qs(mesh, qs)
     
     if SHOW_RESULT:
         rs.HideObject(meshi)

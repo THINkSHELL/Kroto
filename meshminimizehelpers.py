@@ -5,6 +5,7 @@ import rhinoscriptsyntax as rs
 import vectorworks as vw
 import meshminimize as mm
 
+
 def upward_face(n, x1, x2, x3):
     """Returns True if the face orientation defined by the order of the 
     passed in points (screw rule) is the same as that of the mesh, 
@@ -146,7 +147,8 @@ def mesh_distance(vertices, objective):
             distance = vw.dotproduct(vw.matminus(objective[i], vertices[i]),
                                      vw.matminus(objective[i], vertices[i]))
     return distance
-    
+
+
 def mesh_closest_vertices(mesh, points):
     """Finds the vertices of a mesh that are within the document's tolerance
     of one of the points in the list.
@@ -170,3 +172,44 @@ def mesh_closest_vertices(mesh, points):
                 fixed[i] = True
                 break
     return fixed
+
+
+def update_qs(mesh, qs):
+    """Updates the surface stress density coefficients to reach a more 
+    uniform stress over the surface.
+    Arguments:
+      mesh = the Rhino mesh
+      qs = the list current values of qs for each face
+    Returns:
+      dev_sigma = maximum deviation to mean-value of the surface stress
+      qs = updated qs list
+    """
+    
+    area = rs.MeshArea([mesh])[1]
+    faces = rs.MeshFaceVertices(mesh)
+    vertices = rs.MeshVertices(mesh)
+    mean_sigma = 0
+    dev_sigma = 0
+    sigma = [0 for i in faces]
+    
+    # Compute mean stress value
+    for i, face in enumerate(faces):
+        x1 = vertices[face[0]] # = X_1j, 3D point, [3x1] vector
+        x2 = vertices[face[1]] # = X_2j, 3D point, [3x1] vector
+        x3 = vertices[face[2]] # = X_3j, 3D point, [3x1] vector
+        x12 = vw.matminus(x2, x1)
+        x23 = vw.matminus(x3, x1)
+        n = vw.crossproduct(x12, x23)
+        face_area = .5 * vw.dotproduct(n, n)**.5
+        sigma[i] = qs[i] * face_area
+        mean_sigma += sigma[i]/area
+    
+    # Find the maximum deviation to the mean value
+    dev_sigma = max([abs(sig-mean_sigma) for sig in sigma])
+    
+    # If above tolerance, update
+    if dev_sigma > mm.MAX_DEV_SIGMA:
+        for i, sigma_i in enumerate(sigma):
+            qs[i] = qs[i] * mean_sigma / sigma_i
+    
+    return dev_sigma, qs
