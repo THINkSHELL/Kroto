@@ -216,6 +216,6 @@ def update_qs(mesh, qs):
     # If above tolerance, update
     if dev_sigma > mm.MAX_DEV_SIGMA:
         for i, sigma_i in enumerate(sigma):
-            qs[i] = qs[i] * mean_sigma / sigma_i
+            qs[i] = qs[i] * 100 / sigma_i
     
     return dev_sigma, copy.deepcopy(qs), sigma
