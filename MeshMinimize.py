@@ -16,11 +16,15 @@ import vectorworks as vw
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
 
+from imp import reload
+reload(mmh)
+
 
 # Define default options for the solver
 # DEBUG = verbose option
 # GRAPHIC = build every itereation mesh in Rhino (stand-alone script)
 # SHOW_RESULT = build the resulting mesh in Rhino (stand-alone script)
+# SAVE_RESULTS = save the values of all the forces at each iteration
 # MAX_DISP = maximum displacement for the break criterion of the
 #           convergence algorithm
 # MAX_ITER = maximum number of iterations in the fixed-qs convergence 
@@ -36,6 +40,7 @@ import meshminimizehelpers as mmh
 DEBUG = 0
 GRAPHIC = 0
 SHOW_RESULT = 0
+SAVE_RESULTS = 0
 MAX_DISP = 0.01
 MAX_ITER = 10
 MAX_ITER_QS = 10
@@ -44,7 +49,8 @@ SPEED = 1
 METHOD = 'fixed-point'
 FIXED_CABLE_ENDS = True
 
-def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
+def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var,
+                   out):
     """Updates the position of a node in the mesh
     
     Arguments:
@@ -56,9 +62,12 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
       ql = the cable force density
       n_cable = the list of list of cable segments from each vertex
       var = the current maximum displacement in the iteration
+      out = dictionnary of lists saving the forces acting on each
+            vertex (qMiX2, qliX2 and PX2X3)
     Returns
       var = the updated maximum displacement
       new_vertex = the updated position of the node
+      out = results saved with new vertex
     """
     
     """First we initialize the intermediate vectors for calculation
@@ -217,11 +226,16 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var):
         var = vw.dotproduct(vw.matminus(new_vertex, vertices[i]), 
                        vw.matminus(new_vertex, vertices[i]))
                        
-    return var, new_vertex
+    if SAVE_RESULTS:
+        out['M'][i] = qMiX2
+        out['C'][i] = qliX2
+        out['P'][i] = PX2X3
+    
+    return var, new_vertex, out
 
 
 def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
-                     iter):
+                     iter, out):
     """Updates all nodes on the mesh once
     
     Arguments:
@@ -235,10 +249,13 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
       n_cable = list of list of cables segments connected to a vertex
       P6 = pressure / 3
       iter = current iteration number
+      out = dictionnary of lists saving the forces acting on each
+            vertex (qMiX2, qliX2 and PX2X3)
     Returns:
       iter = updated iteration number
       var = maximum squared displacement for this iteration
       vertices = updated positions of vertices
+      out = results updated to current iteration
     """
     
     # Copy vertices to a new list, so that we do not overwrite it
@@ -247,15 +264,15 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
     var = 0
     for i in range(len(vertices)):
         if not fixed[i]:
-            var, new_vertices[i] = iterate_vertex(i, vertices, vertex_faces, 
-                                                 naked, qs, ql, n_cable, P6, 
-                                                 var)
+            var, new_vertices[i], out = iterate_vertex(
+                i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var, out)
     vertices = copy.deepcopy(new_vertices)
-    return iter, var, vertices
+    
+    return iter, var, vertices, out
 
 
 def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
-                     n_cable, P, meshi=None):
+                     n_cable, P, out, meshi=None):
     """Iterates the problem with qs fixed, until a pseudo-minimal 
     surface is found.
     Arguments:
@@ -270,20 +287,25 @@ def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments attached to each vertex
       P = pressure
+      out = dictionnary of lists saving the forces acting on each
+            vertex (qMiX2, qliX2 and PX2X3)
       meshi = save-state for graphical display
     Returns:
+      vars = list of maximum squared displacement for each iteration
       vertices = updated positions of vertices
+      out = results updated to current iteration
     """
     
     # Initialize loop
     iter = 0
     var = 2*MAX_DISP
+    vars = []
     
     # Loop while we can, get some display if wanted
     while (iter < MAX_ITER) & (var > MAX_DISP):
-        iter, var, vertices = iterate_one_step(vertices, vertex_faces, 
-                                               naked, fixed, qs, ql,
-                                               n_cable, P/6, iter)
+        iter, var, vertices, out = iterate_one_step(vertices, vertex_faces, 
+                                                    naked, fixed, qs, ql,
+                                                    n_cable, P/6, iter, out)
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
@@ -292,8 +314,9 @@ def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
                    u"l'itération précedente : {} mm²").format(iter, var)
         else:
             print var
+        vars.append(var)
     
-    return vertices
+    return vars, vertices, out
 
 
 def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
@@ -310,6 +333,10 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments connected to a vertex
       P = pressure
+      out = dictionnary of lists saving the forces acting on each
+            vertex ('M' = qMiX2, 'C' = qliX2 and 'P' = PX2X3), 
+            also 'S' = faces stress and 'convergence' = convergence 
+            criterion for each iteration.
     Returns:
         vertices = vertices at new position
     """
@@ -353,18 +380,32 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         if not (ql and n_cable and fixed):
             ql, n_cable, fixed = mmh.define_cables(cables, q_cables, 
                                                    old_vertices, naked, fixed)
+    out = {'M':[0 for i in vertices],
+        'C':[0 for i in vertices],
+        'P':[0 for i in vertices],
+        'S':[0 for i in range(rs.MeshFaceCount(mesh))],
+        'convergence':[],
+        }
     
+    # Initialize loop
     iter_qs = 0
     dev_sigma = 2*MAX_DEV_SIGMA
     
+    # Loop while qs needs to be updated
     while (iter_qs < MAX_ITER_QS) & (dev_sigma > MAX_DEV_SIGMA):
-        vertices = iterate_fixed_qs(vertices, vertex_faces, connec, naked, 
-                                    fixed, qs, ql, n_cable, P)
+        vars, vertices, out = iterate_fixed_qs(
+            vertices, vertex_faces, connec, naked, fixed, qs, ql, n_cable, P, 
+            out)
+        out['convergence'].append(vars)
         iter_qs += 1
-        dev_sigma, qs = mmh.update_qs(mesh, qs)
+        if iter_qs < MAX_ITER_QS:
+            dev_sigma, qs, out['S'] = mmh.update_qs(mesh, qs)
+        else:
+            out['S'] = mmh.update_qs(mesh, copy.deepcopy(qs))[2]
+        print '-'*20
     
     if SHOW_RESULT:
         rs.HideObject(meshi)
         rs.AddMesh(vertices, connec)
         
-    return vertices
+    return vertices, out

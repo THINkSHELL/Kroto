@@ -4,6 +4,8 @@
 import rhinoscriptsyntax as rs
 import vectorworks as vw
 import meshminimize as mm
+from imp import reload
+reload(mm)
 
 
 def upward_face(n, x1, x2, x3):
@@ -176,13 +178,15 @@ def mesh_closest_vertices(mesh, points):
 
 def update_qs(mesh, qs):
     """Updates the surface stress density coefficients to reach a more 
-    uniform stress over the surface.
+    uniform stress over the surface. Computes surface stresses at the 
+    same time.
     Arguments:
       mesh = the Rhino mesh
       qs = the list current values of qs for each face
     Returns:
       dev_sigma = maximum deviation to mean-value of the surface stress
       qs = updated qs list
+      sigma = surface stresses
     """
     
     area = rs.MeshArea([mesh])[1]
@@ -211,5 +215,5 @@ def update_qs(mesh, qs):
     if dev_sigma > mm.MAX_DEV_SIGMA:
         for i, sigma_i in enumerate(sigma):
             qs[i] = qs[i] * mean_sigma / sigma_i
-    
-    return dev_sigma, qs
+    print qs
+    return dev_sigma, qs, sigma

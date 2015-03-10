@@ -13,6 +13,7 @@ clr.EnableProfiler(True)
 mm.DEBUG = 0
 mm.GRAPHIC = 0
 mm.SHOW_RESULT = 1
+mm.SAVE_RESULTS = 0
 mm.MAX_DISP = 0.001
 mm.MAX_ITER = 100
 mm.MAX_ITER_QS = 10
