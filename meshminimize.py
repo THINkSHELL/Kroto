@@ -16,6 +16,9 @@ import vectorworks as vw
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
 
+from Grasshopper.Kernel.Data import GH_Path
+from Grasshopper import DataTree
+
 from imp import reload
 reload(mmh)
 
@@ -384,7 +387,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         'C':[0 for i in vertices],
         'P':[0 for i in vertices],
         'S':[0 for i in range(rs.MeshFaceCount(mesh))],
-        'convergence':[],
+        'convergence':DataTree[object](),
         }
     
     # Initialize loop
@@ -396,7 +399,9 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         vars, vertices, out = iterate_fixed_qs(
             vertices, vertex_faces, connec, naked, fixed, qs, ql, n_cable, P, 
             out)
-        out['convergence'].append(vars)
+        # Branch the list of lists to a proper GH output
+        for i, var in enumerate(vars):
+            out['convergence'].Add(var, GH_Path(*[0,iter_qs]))
         iter_qs += 1
         if iter_qs < MAX_ITER_QS:
             dev_sigma, qs, out['S'] = mmh.update_qs(mesh, qs)
