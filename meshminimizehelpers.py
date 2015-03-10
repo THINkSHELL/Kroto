@@ -4,6 +4,8 @@
 import rhinoscriptsyntax as rs
 import vectorworks as vw
 import meshminimize as mm
+import copy
+
 from imp import reload
 reload(mm)
 
@@ -215,5 +217,5 @@ def update_qs(mesh, qs):
     if dev_sigma > mm.MAX_DEV_SIGMA:
         for i, sigma_i in enumerate(sigma):
             qs[i] = qs[i] * mean_sigma / sigma_i
-    print qs
-    return dev_sigma, qs, sigma
+    
+    return dev_sigma, copy.deepcopy(qs), sigma

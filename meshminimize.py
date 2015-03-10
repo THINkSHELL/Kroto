@@ -53,7 +53,7 @@ METHOD = 'fixed-point'
 FIXED_CABLE_ENDS = True
 
 def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var,
-                   out):
+                   iter_qs, iter, out):
     """Updates the position of a node in the mesh
     
     Arguments:
@@ -65,6 +65,8 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var,
       ql = the cable force density
       n_cable = the list of list of cable segments from each vertex
       var = the current maximum displacement in the iteration
+      iter_qs = current iteration in the qs loop
+      iter = current iteration in the stresses loop
       out = dictionnary of lists saving the forces acting on each
             vertex (qMiX2, qliX2 and PX2X3)
     Returns
@@ -230,15 +232,19 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var,
                        vw.matminus(new_vertex, vertices[i]))
                        
     if SAVE_RESULTS:
-        out['M'][i] = qMiX2
-        out['C'][i] = qliX2
-        out['P'][i] = PX2X3
+        # Branch the lists of lists to a proper GH output
+        for M in qMiX2:
+            out['M'].Add(M / (qli+ql2i), GH_Path(iter_qs, iter, i))
+        for C in qliX2:
+            out['C'].Add(C / (qli+ql2i), GH_Path(iter_qs, iter, i))
+        for P in PX2X3:
+            out['P'].Add(P / (qli+ql2i), GH_Path(iter_qs, iter, i))
     
     return var, new_vertex, out
 
 
 def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
-                     iter, out):
+                     iter_qs, iter, out):
     """Updates all nodes on the mesh once
     
     Arguments:
@@ -251,6 +257,7 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cables segments connected to a vertex
       P6 = pressure / 3
+      iter_qs = current iteration in the qs loop
       iter = current iteration number
       out = dictionnary of lists saving the forces acting on each
             vertex (qMiX2, qliX2 and PX2X3)
@@ -268,14 +275,15 @@ def iterate_one_step(vertices, vertex_faces, naked, fixed, qs, ql, n_cable, P6,
     for i in range(len(vertices)):
         if not fixed[i]:
             var, new_vertices[i], out = iterate_vertex(
-                i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var, out)
+                i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var,
+                iter_qs, iter, out)
     vertices = copy.deepcopy(new_vertices)
     
     return iter, var, vertices, out
 
 
 def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
-                     n_cable, P, out, meshi=None):
+                     n_cable, P, iter_qs, out, meshi=None):
     """Iterates the problem with qs fixed, until a pseudo-minimal 
     surface is found.
     Arguments:
@@ -290,6 +298,7 @@ def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments attached to each vertex
       P = pressure
+      iter_qs = current iteration in the qs loop
       out = dictionnary of lists saving the forces acting on each
             vertex (qMiX2, qliX2 and PX2X3)
       meshi = save-state for graphical display
@@ -307,8 +316,7 @@ def iterate_fixed_qs(vertices, vertex_faces, connec, naked, fixed, qs, ql,
     # Loop while we can, get some display if wanted
     while (iter < MAX_ITER) & (var > MAX_DISP):
         iter, var, vertices, out = iterate_one_step(vertices, vertex_faces, 
-                                                    naked, fixed, qs, ql,
-                                                    n_cable, P/6, iter, out)
+            naked, fixed, qs, ql, n_cable, P/6, iter_qs, iter, out)
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
@@ -332,7 +340,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
       fixed = list of booleans, True if vertex is fixed
       qs = list of surface stress density coefficients for each face
       q_cables = list of force density coefficients for each cable
-      reference = reference mesh for comparisons, unused
+      reference = reference mesh for comparisons, unuseds
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments connected to a vertex
       P = pressure
@@ -383,9 +391,9 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         if not (ql and n_cable and fixed):
             ql, n_cable, fixed = mmh.define_cables(cables, q_cables, 
                                                    old_vertices, naked, fixed)
-    out = {'M':[0 for i in vertices],
-        'C':[0 for i in vertices],
-        'P':[0 for i in vertices],
+    out = {'M':DataTree[object](),
+        'C':DataTree[object](),
+        'P':DataTree[object](),
         'S':[0 for i in range(rs.MeshFaceCount(mesh))],
         'convergence':DataTree[object](),
         }
@@ -398,15 +406,15 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     while (iter_qs < MAX_ITER_QS) & (dev_sigma > MAX_DEV_SIGMA):
         vars, vertices, out = iterate_fixed_qs(
             vertices, vertex_faces, connec, naked, fixed, qs, ql, n_cable, P, 
-            out)
+            iter_qs, out)
         # Branch the list of lists to a proper GH output
         for i, var in enumerate(vars):
             out['convergence'].Add(var, GH_Path(*[0,iter_qs]))
         iter_qs += 1
         if iter_qs < MAX_ITER_QS:
-            dev_sigma, qs, out['S'] = mmh.update_qs(mesh, qs)
+            dev_sigma, qs, out['S'] = mmh.update_qs(mesh, copy.deepcopy(qs))
         else:
-            out['S'] = mmh.update_qs(mesh, copy.deepcopy(qs))[2]
+            out['S'] = mmh.update_qs(mesh, qs)[2]
         print '-'*20
     
     if SHOW_RESULT:
