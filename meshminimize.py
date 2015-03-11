@@ -25,7 +25,7 @@ reload(mmh)
 
 # Define default options for the solver
 # DEBUG = verbose option
-# GRAPHIC = build every itereation mesh in Rhino (stand-alone script)
+# GRAPHIC = build every iteration mesh in Rhino (stand-alone script)
 # SHOW_RESULT = build the resulting mesh in Rhino (stand-alone script)
 # SAVE_RESULTS = save the values of all the forces at each iteration
 # MAX_DISP = maximum displacement for the break criterion of the
@@ -75,43 +75,44 @@ def iterate_vertex(i, vertices, vertex_faces, naked, qs, ql, n_cable, P6, var,
       out = results saved with new vertex
     """
     
-    """First we initialize the intermediate vectors for calculation
-    All numberings (usually indexed by j) are relative to the current 
-    vertex, i.
+    # All numberings (usually indexed by j) are relative to the current 
+    # vertex, i.
     
-    .  = vector dot-product ( [n,1] . [n,1] -> [1,1] )
-    /\ = vector cross-product ( [n,1] /\ [n,1] -> [n,1] )
-    x  = vector kronecker product ( [n,1] x [n,1] -> [n,n] )
-    *  = classical multipliation of scalars, vectors or matrices
+    # .  = vector dot-product ( [n,1] . [n,1] -> [1,1] )
+    # /\ = vector cross-product ( [n,1] /\ [n,1] -> [n,1] )
+    # x  = vector kronecker product ( [n,1] x [n,1] -> [n,n] )
+    # *  = classical multipliation of scalars, vectors or matrices
     
-    m_i = faces around the vertex i
-    n_i = cables around the vertex i
-    X_2j, X_3j = points 2 and 3 of the face #j around the vertex i, 
-                 [3x1] vector
-    X_2j3j = X_3j - X_2j = vector from 2j to 3j, [3x1] vector
+    # m_i = faces around the vertex i
+    # n_i = cables around the vertex i
+    # X_2j, X_3j = points 2 and 3 of the face #j around the vertex i, 
+                 # [3x1] vector
+    # X_2j3j = X_3j - X_2j = vector from 2j to 3j, [3x1] vector
     
-    M_(i,j) = (X_2j3j . X_2j3j)*Id - (X_2j3j x X_2j3j)
-              [3,3] matrix representing the dependant faces areas around
-              the vertex i
+    # M_(i,j) = (X_2j3j . X_2j3j)*Id - (X_2j3j x X_2j3j)
+              # [3,3] matrix representing the dependant faces areas around
+              # the vertex i
     
-    qs_j  = face number j surface stress density coefficient
-    ql_j  = cable segment number j force density coefficient (for points
-            in the middle of a cable, count each side once)
-    P6     = pressure / 3 (uniform scalar at the moment)
+    # qs_j  = face number j surface stress density coefficient
+    # ql_j  = cable segment number j force density coefficient (for points
+            # in the middle of a cable, count each side once)
+    # P6     = pressure / 3 (uniform scalar at the moment)
     
-    qMi   = sum(j = [1, m_i]; qs_j * M_(i,j))
-          = local stiffness matrix, [3x3] matrix
-    qMiX2 = sum(j = [1, m_i]; qs_j * M_(i,j) * X_2j) 
-          = local membrane forces on the vertex, [3x1] vector
-    ql2i  = sum(j = [1, m_i]; qs_j * l_ij^2) 
-          = local membrane stifness coefficient, scalar
-    qli   = sum(j = [1, n_i]; ql_j)
-          = local cable stifness coefficient, scalar
-    qliX2 = sum(j = [1, n_i]; ql_j * M_(i,j) * X_2j) 
-          = local cable forces on the vertex, [3x1] vector
-    PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i)
-          = pressure membrane forces around the vertex, [3x1] vector
-    """
+    # qMi   = sum(j = [1, m_i]; qs_j * M_(i,j))
+          # = local stiffness matrix, [3x3] matrix
+    # qMiX2 = sum(j = [1, m_i]; qs_j * M_(i,j) * X_2j) 
+          # = local membrane forces on the vertex, [3x1] vector
+    # ql2i  = sum(j = [1, m_i]; qs_j * l_ij^2) 
+          # = local membrane stifness coefficient, scalar
+    # qli   = sum(j = [1, n_i]; ql_j)
+          # = local cable stifness coefficient, scalar
+    # qliX2 = sum(j = [1, n_i]; ql_j * M_(i,j) * X_2j) 
+          # = local cable forces on the vertex, [3x1] vector
+    # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i)
+          # = pressure membrane forces around the vertex, [3x1] vector
+
+		  
+    # First we initialize the intermediate vectors for calculation
     qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
     qMiX2 = [0, 0, 0]
     ql2i = 0
@@ -352,7 +353,6 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         vertices = vertices at new position
     """
     
-    #
     # Initialize
     # qs defaults to 1 everywhere
     # meshi remembers current mesh if we need to hide it in Rhino
@@ -364,8 +364,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     #                   mmh.define_cables
     # ql, n_cable are defined by mmh.define_cables if necessary
     # q_cables defaults to 1
-    #
-    
+    # out is just empty GH trees at first
     if not qs:
         qs = [1 for i in range(rs.MeshFaceCount(mesh))]
     if GRAPHIC or SHOW_RESULT:
