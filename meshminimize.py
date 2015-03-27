@@ -158,18 +158,22 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
 
         # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i),
         # running sum update, [3,1] vector
-        PX2X3 = vw.matplus(PX2X3,  # noqa
-                           vw.matmul(P6, vw.crossproduct(x2, x3)))
+        PX2X3 = vw.matplus(  # noqa
+            PX2X3,  # noqa
+            vw.matmul(P6, vw.crossproduct(x2, x3))
+        )
         # The contour term is non-zero only for edge nodes
         if naked:
-            PX2X3 = vw.matplus(PX2X3,  # noqa
-                               vw.matmul(P6,
-                                         vw.crossproduct(x23, vertices[i])))
+            PX2X3 = vw.matplus(  # noqa
+                PX2X3,
+                vw.matmul(P6, vw.crossproduct(x23, vertices[i]))
+            )
 
         if DEBUG:
             print '\n'.join([
                 str((i, j)), str(x2), str(x3), str(x23), str(ql),
-                str(qMij), vw.matmul(qMij, x2), str(ql2i), '---'])
+                str(qMij), vw.matmul(qMij, x2), str(ql2i), '---'
+            ])
         j += 1
         # END while
 
@@ -195,27 +199,27 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
                     vw.matmul(
                         vw.inverse(vw.matplus(qMi, vw.matmul(qli, vw.id))),
                         vw.matplus(qMiX2, vw.matplus(qliX2, PX2X3))
-                        ),
+                    ),
                     vertices[i]
-                    )
                 )
             )
+        )
     # X_i(t+1) = X_i(t) + SPEED / (ql2i + qli) *
     #                              (qMiX2 + qliX2 + PX2X3 - (qMi + qli).X_i(t))
     elif METHOD == 'fixed-point':
         new_vertex = vw.matplus(
             vertices[i],
             vw.matmul(
-                SPEED/(ql2i+qli),
+                SPEED / (ql2i + qli),
                 vw.matminus(
                     vw.matplus(qMiX2, vw.matplus(qliX2, PX2X3)),
                     vw.matmul(
                         vw.matplus(qMi, vw.matmul(qli, vw.id)),
                         vertices[i]
-                        )
                     )
                 )
             )
+        )
 
     # Update displacement criterion, if needed.
     # max(squared disp) is not a really good criterion, to be improved..
@@ -228,11 +232,11 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
     if SAVE_RESULTS:
         # Branch the lists of lists to a proper GH output
         for M in qMiX2:
-            out['M'].Add(M / (qli+ql2i), GH_Path(iter_qs, iter, i))
+            out['M'].Add(M / (qli + ql2i), GH_Path(iter_qs, iter, i))
         for C in qliX2:
-            out['C'].Add(C / (qli+ql2i), GH_Path(iter_qs, iter, i))
+            out['C'].Add(C / (qli + ql2i), GH_Path(iter_qs, iter, i))
         for P in PX2X3:
-            out['P'].Add(P / (qli+ql2i), GH_Path(iter_qs, iter, i))
+            out['P'].Add(P / (qli + ql2i), GH_Path(iter_qs, iter, i))
 
     return var, new_vertex, out
 
@@ -272,7 +276,8 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
         if not fixed[i]:
             var, new_vertices[i], out = iterate_vertex(
                 i, vertices, vertices_faces_nodes, vertices_faces[i],
-                naked[i], qs, ql, n_cable, P6, var, iter_qs, iter, out)
+                naked[i], qs, ql, n_cable, P6, var, iter_qs, iter, out
+            )
     vertices = copy.deepcopy(new_vertices)
 
     return iter, var, vertices, out
@@ -309,15 +314,15 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
 
     # Initialize loop
     iter = 0
-    var = 2*MAX_DISP+1
+    var = 2 * MAX_DISP + 1
     vars = []
 
     # Loop while we can, get some display if wanted
     while (iter < MAX_ITER) & (var > MAX_DISP):
         iter, var, vertices, out = iterate_one_step(
             vertices, vertices_faces_nodes, vertices_faces, naked, fixed, qs,
-            ql, n_cable, P/6, iter_qs, iter, out
-            )
+            ql, n_cable, P / 6, iter_qs, iter, out
+        )
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
@@ -406,13 +411,14 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
 
     # Initialize loop
     iter_qs = 0
-    dev_sigma = 2*MAX_DEV_SIGMA+1
+    dev_sigma = 2 * MAX_DEV_SIGMA + 1
 
     # Loop while qs needs to be updated
     while (iter_qs < MAX_ITER_QS) & (dev_sigma > MAX_DEV_SIGMA):
         vars, vertices, out = iterate_fixed_qs(
             vertices, vertices_faces_nodes, vertices_faces, connec, naked,
-            fixed, qs, ql, n_cable, P, iter_qs, out)
+            fixed, qs, ql, n_cable, P, iter_qs, out
+        )
         # Branch the list of lists to a proper GH output
         for i, var in enumerate(vars):
             out['convergence'].Add(var, GH_Path(*[0, iter_qs]))
@@ -423,7 +429,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
             out['S'] = mmh.update_qs(mesh, copy.deepcopy(qs))[2]
         if DEBUG:
             print qs
-        print '-'*20
+        print '-' * 20
 
     if SHOW_RESULT:
         rs.HideObject(meshi)

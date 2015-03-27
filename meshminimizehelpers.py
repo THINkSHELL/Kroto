@@ -90,9 +90,9 @@ def define_cables(cables, q_cables, vertices, naked, fixed):
         temp[i].sort(key=lambda v: rs.CurveClosestPoint(cable, vertices[v]))
 
         for j in range(len(temp[i])):
-            if (not fixed[temp[i][j]]) and j and (j-len(temp[i])+1):
-                n_cable[temp[i][j]].append(temp[i][j-1])
-                n_cable[temp[i][j]].append(temp[i][j+1])
+            if (not fixed[temp[i][j]]) and j and (j - len(temp[i]) + 1):
+                n_cable[temp[i][j]].append(temp[i][j - 1])
+                n_cable[temp[i][j]].append(temp[i][j + 1])
                 ql[temp[i][j]].append(q_cables[i])
                 ql[temp[i][j]].append(q_cables[i])
 
@@ -209,12 +209,12 @@ def update_qs(mesh, qs):
         x12 = vw.matminus(x2, x1)
         x23 = vw.matminus(x3, x1)
         n = vw.crossproduct(x12, x23)
-        face_area = .5 * vw.dotproduct(n, n)**.5
+        face_area = .5 * vw.dotproduct(n, n) ** .5
         sigma[i] = qs[i] * face_area
-        mean_sigma += sigma[i]/n_faces
+        mean_sigma += sigma[i] / n_faces
 
     # Find the maximum deviation to the mean value
-    dev_sigma = max([abs(sig-mean_sigma) for sig in sigma])
+    dev_sigma = max([abs(sig - mean_sigma) for sig in sigma])
 
     # If above tolerance, update
     if dev_sigma > mm.MAX_DEV_SIGMA:
