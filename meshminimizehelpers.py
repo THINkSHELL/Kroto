@@ -33,7 +33,7 @@ def upward_face(n, x1, x2, x3):
     return a > 0
 
 
-def define_cables(cables, q_cables, vertices, naked, fixed):
+def define_cables(cables, q_cables, vertices, naked, fixed):  # noqa
     """Defines the cables list strucure from the Rhino geometry.
     Connects the mesh vertices lying on a polyline together. The
     polyline vertices are not considered as ends for the
@@ -57,6 +57,10 @@ def define_cables(cables, q_cables, vertices, naked, fixed):
 
     # Initialize
     # temp = list of list of vertices on each cable
+    # ql = list of list of the connected cables force densities,
+    #      for each vertex
+    # n_cable = connectivity matrix of the cables
+    #         = list of list of connected vertices to each vertex
     temp = [[] for i in cables]
     ql = [[] for i in vertices]
     n_cable = [[] for i in vertices]
@@ -69,10 +73,11 @@ def define_cables(cables, q_cables, vertices, naked, fixed):
             for i, cable in enumerate(cables):
 
                 # Vertex is on cable i, save it to temp[i]
-                if rs.Distance(
-                        rs.EvaluateCurve(cable,
-                                         rs.CurveClosestPoint(cable, vertex)),
-                        vertex) < tol:
+                if (rs.Distance(
+                        rs.EvaluateCurve(
+                            cable,
+                            rs.CurveClosestPoint(cable, vertex)),
+                        vertex) < tol):
                     temp[i].append(v)
 
                     # Vertex is on a cable end, fix it if needed
@@ -89,12 +94,19 @@ def define_cables(cables, q_cables, vertices, naked, fixed):
         # Sort vertices along cable, successive vertices will be linked
         temp[i].sort(key=lambda v: rs.CurveClosestPoint(cable, vertices[v]))
 
+        # If cable is closed, re-add first vertex at the end
+        if rs.Distance(rs.CurveStartPoint(cable),
+                       rs.CurveEndPoint(cable)) < tol:
+            temp[i].append(temp[i][0])
+
         for j in range(len(temp[i])):
-            if (not fixed[temp[i][j]]) and j and (j - len(temp[i]) + 1):
-                n_cable[temp[i][j]].append(temp[i][j - 1])
-                n_cable[temp[i][j]].append(temp[i][j + 1])
-                ql[temp[i][j]].append(q_cables[i])
-                ql[temp[i][j]].append(q_cables[i])
+            if not fixed[temp[i][j]]:
+                if j:
+                    n_cable[temp[i][j]].append(temp[i][j - 1])
+                    ql[temp[i][j]].append(q_cables[i])
+                if (j - len(temp[i]) + 1):
+                    n_cable[temp[i][j]].append(temp[i][j + 1])
+                    ql[temp[i][j]].append(q_cables[i])
 
     return ql, n_cable, fixed
 
