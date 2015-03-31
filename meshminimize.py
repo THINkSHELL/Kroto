@@ -188,8 +188,8 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
             qliX2 = vw.matplus(qliX2, vw.matmul(ql[i][j], vertices[v]))  # noqa
 
     # Do the actual work here, both methods
-    # X_i(t+1) = X_i(t) + SPEED / (qMi + qli) *
-    #                        ((qMiX2 + qliX2 + PX2X3) - X_i(t))
+    # X_i(t+1) = X_i(t) + SPEED * ((qMi + qli)^-1 *
+    #                        (qMiX2 + qliX2 + PX2X3) - X_i(t))
     if METHOD == 'gradient':
         new_vertex = vw.matplus(
             vertices[i],
@@ -231,9 +231,9 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
 
     if SAVE_RESULTS:
         # Branch the lists of lists to a proper GH output
-        for M in qMiX2:
+        for M in vw.matminus(qMiX2, vw.matmul(qMi, vertices[i])):
             out['M'].Add(M / (qli + ql2i), GH_Path(iter_qs, iter, i))
-        for C in qliX2:
+        for C in vw.matminus(qliX2, vw.matmul(qli, vertices[i])):
             out['C'].Add(C / (qli + ql2i), GH_Path(iter_qs, iter, i))
         for P in PX2X3:
             out['P'].Add(P / (qli + ql2i), GH_Path(iter_qs, iter, i))
