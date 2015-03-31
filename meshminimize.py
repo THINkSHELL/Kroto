@@ -15,6 +15,7 @@ import copy
 import vectorworks as vw
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
+import ghpythonlib.parallel
 
 from Grasshopper.Kernel.Data import GH_Path
 from Grasshopper import DataTree
@@ -272,12 +273,18 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
     new_vertices = copy.deepcopy(vertices)
     iter += 1
     var = 0
-    for i in range(len(vertices)):
-        if not fixed[i]:
-            var, new_vertices[i], out = iterate_vertex(
-                i, vertices, vertices_faces_nodes, vertices_faces[i],
-                naked[i], qs, ql, n_cable, P6, var, iter_qs, iter, out
-            )
+    args = [(i, vertices, vertices_faces_nodes, vertices_faces[i],
+            naked[i], qs, ql, n_cable, P6, var, iter_qs, iter, out)
+            for i in range(len(vertices)) if not fixed[i]]
+    # for i in range(len(vertices)):
+    #    if not fixed[i]:
+    #        var, new_vertices[i], out = ghpythonlib.parallel.run(
+    #            iterate_vertex,
+    #        )
+
+    def iterate_vertex2(args):
+        return iterate_vertex(*args)
+    var, new_vertices[i], out = ghpythonlib.parallel.run(iterate_vertex2, args)
     vertices = copy.deepcopy(new_vertices)
 
     return iter, var, vertices, out
