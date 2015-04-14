@@ -5,10 +5,6 @@ import rhinoscriptsyntax as rs
 import vectorworks as vw
 import meshminimize as mm
 
-from imp import reload
-reload(mm)
-reload(vw)
-
 
 def upward_face(n, x1, x2, x3):
     """Returns True if the face orientation defined by the order of the

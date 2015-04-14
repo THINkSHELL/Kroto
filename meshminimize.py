@@ -12,17 +12,11 @@ until density coefficients yield a uniform stress field.
 """
 
 from vectorworks import *
-import copy
-#import vectorworks as vw
-import rhinoscriptsyntax as rs
-import meshminimizehelpers as mmh
-
 from Grasshopper.Kernel.Data import GH_Path
 from Grasshopper import DataTree
-
-from imp import reload
-reload(mmh)
-reload(vw)
+import copy
+import rhinoscriptsyntax as rs
+import meshminimizehelpers as mmh
 
 
 # Define default options for the solver
