@@ -11,7 +11,7 @@ surface if the edges are fixed, pressure null and the method iterated
 until density coefficients yield a uniform stress field.
 """
 
-from vectorworks import *
+from vectorworks import *  # noqa
 from Grasshopper.Kernel.Data import GH_Path
 from Grasshopper import DataTree
 import copy
@@ -220,10 +220,10 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
     # Update displacement criterion, if needed.
     # max(squared disp) is not a really good criterion, to be improved..
     if (dotproduct(matminus(new_vertex, vertices[i]),
-                      matminus(new_vertex, vertices[i]))
+                   matminus(new_vertex, vertices[i]))
             > var):
         var = dotproduct(matminus(new_vertex, vertices[i]),
-                            matminus(new_vertex, vertices[i]))
+                         matminus(new_vertex, vertices[i]))
 
     if SAVE_RESULTS:
         # Branch the lists of lists to a proper GH output
@@ -265,7 +265,7 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
     """
 
     if METHOD == 'seidel':
-        #Update the mesh in-place as we loop over each vertex
+        # Update the mesh in-place as we loop over each vertex
         new_vertices = vertices
     else:
         # Copy vertices to a new list, so that we do not overwrite it

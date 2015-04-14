@@ -61,7 +61,6 @@ def matplus(A, B):   # noqa
 
 
 def matminus(A, B):  # noqa
-    #return matplus(A, matmul(-1, B))
     if type(A) != list and type(B) != list:
         res = A - B
     elif type(A[0]) != list and type(B[0]) != list:
@@ -119,9 +118,11 @@ def transpose(A):  # noqa
         res = [[A[i]] for i in range(len(A))]
     return res
 
+
 def diag(V, dim=None):  # noqa
     if not dim:
-        return [[(i == j) * V[i] for i in range(len(V))] for j in range(len(V))]
+        return [[(i == j) * V[i] for i in range(len(V))]
+                for j in range(len(V))]
     else:
         return [[(i == j) * V for i in range(dim)] for j in range(dim)]
 
