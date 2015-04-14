@@ -7,6 +7,7 @@ import meshminimize as mm
 
 from imp import reload
 reload(mm)
+reload(vw)
 
 
 def upward_face(n, x1, x2, x3):

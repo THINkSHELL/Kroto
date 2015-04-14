@@ -11,8 +11,9 @@ surface if the edges are fixed, pressure null and the method iterated
 until density coefficients yield a uniform stress field.
 """
 
+from vectorworks import *
 import copy
-import vectorworks as vw
+#import vectorworks as vw
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
 
@@ -21,6 +22,7 @@ from Grasshopper import DataTree
 
 from imp import reload
 reload(mmh)
+reload(vw)
 
 
 # Define default options for the solver
@@ -38,7 +40,7 @@ reload(mmh)
 #                 stresses
 # SPEED = displacement speed at each iteration (necessary for stability
 #         of the gradient method)
-# METHOD = 'fixed-point' or 'gradient'
+# METHOD = 'fixed-point', 'seidel' or 'gradient'
 # FIXED_CABLE_ENDS = cables ends are considered fixed
 DEBUG = 0
 GRAPHIC = 0
@@ -136,43 +138,43 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
     while vertices_faces_nodes.get((i, j), 0):  # Face is in vertex_faces table
         x2 = vertices[vertices_faces_nodes[(i, j)][1]]  # = X_2j,3D point,[3x1]
         x3 = vertices[vertices_faces_nodes[(i, j)][2]]  # = X_3j,3D point,[3x1]
-        x23 = vw.matminus(x3, x2)  # = vector X_2j3j, [3x1] vector
+        x23 = matminus(x3, x2)  # = vector X_2j3j, [3x1] vector
         qij = qs[vertex_faces[j]]  # = qs_j = Surface stress density coef
 
         # qMij = qs_j * M_(i,j)
         # M_(i,j) = (X_2j3j . X_2j3j)*Id - (X_2j3j x X_2j3j)
-        qMij = vw.matmul(  # noqa
+        qMij = matmul(  # noqa
             qij,
-            vw.matminus(
-                vw.matmul(vw.dotproduct(x23, x23), vw.id),
-                vw.veckronproduct(x23, x23)
+            matminus(
+                diag(dotproduct(x23, x23), dim=3),
+                veckronproduct(x23, x23)
             )
         )
 
         # update qMi and qMiX2 running sums
-        qMi = vw.matplus(qMi, qMij)  # noqa
-        qMiX2 = vw.matplus(qMiX2, vw.matmul(qMij, x2))  # noqa
+        qMi = matplus(qMi, qMij)  # noqa
+        qMiX2 = matplus(qMiX2, matmul(qMij, x2))  # noqa
 
         # ql2i = sum(j = [1, m_i]; qs_j * l_ij^2), running sum update, scalar
-        ql2i += qij * vw.dotproduct(x23, x23)
+        ql2i += qij * dotproduct(x23, x23)
 
         # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i),
         # running sum update, [3,1] vector
-        PX2X3 = vw.matplus(  # noqa
+        PX2X3 = matplus(  # noqa
             PX2X3,  # noqa
-            vw.matmul(P6, vw.crossproduct(x2, x3))
+            matmul(P6, crossproduct(x2, x3))
         )
         # The contour term is non-zero only for edge nodes
         if naked:
-            PX2X3 = vw.matplus(  # noqa
+            PX2X3 = matplus(  # noqa
                 PX2X3,
-                vw.matmul(P6, vw.crossproduct(x23, vertices[i]))
+                matmul(P6, crossproduct(x23, vertices[i]))
             )
 
         if DEBUG:
             print '\n'.join([
                 str((i, j)), str(x2), str(x3), str(x23), str(ql),
-                str(qMij), vw.matmul(qMij, x2), str(ql2i), '---'
+                str(qMij), matmul(qMij, x2), str(ql2i), '---'
             ])
         j += 1
         # END while
@@ -185,20 +187,20 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
         for j, v in enumerate(n_cable[i]):
             # qliX2 = qliX2 = sum( j = [1, n_i]; ql_j * M_(i,j) * X_2j ),
             # Running sum update, [3x1] vector.
-            qliX2 = vw.matplus(qliX2, vw.matmul(ql[i][j], vertices[v]))  # noqa
+            qliX2 = matplus(qliX2, matmul(ql[i][j], vertices[v]))  # noqa
 
     # Do the actual work here, both methods
     # X_i(t+1) = X_i(t) + SPEED * ((qMi + qli)^-1 *
     #                        (qMiX2 + qliX2 + PX2X3) - X_i(t))
     if METHOD == 'gradient':
-        new_vertex = vw.matplus(
+        new_vertex = matplus(
             vertices[i],
-            vw.matmul(
+            matmul(
                 SPEED,
-                vw.matminus(
-                    vw.matmul(
-                        vw.inverse(vw.matplus(qMi, vw.matmul(qli, vw.id))),
-                        vw.matplus(qMiX2, vw.matplus(qliX2, PX2X3))
+                matminus(
+                    matmul(
+                        inverse(matplus(qMi, diag(qli, dim=3))),
+                        matplus(qMiX2, matplus(qliX2, PX2X3))
                     ),
                     vertices[i]
                 )
@@ -206,15 +208,15 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
         )
     # X_i(t+1) = X_i(t) + SPEED / (ql2i + qli) *
     #                              (qMiX2 + qliX2 + PX2X3 - (qMi + qli).X_i(t))
-    elif METHOD == 'fixed-point':
-        new_vertex = vw.matplus(
+    elif METHOD == 'seidel' or METHOD == 'fixed-point':
+        new_vertex = matplus(
             vertices[i],
-            vw.matmul(
+            matmul(
                 SPEED / (ql2i + qli),
-                vw.matminus(
-                    vw.matplus(qMiX2, vw.matplus(qliX2, PX2X3)),
-                    vw.matmul(
-                        vw.matplus(qMi, vw.matmul(qli, vw.id)),
+                matminus(
+                    matplus(qMiX2, matplus(qliX2, PX2X3)),
+                    matmul(
+                        matplus(qMi, diag(qli, dim=3)),
                         vertices[i]
                     )
                 )
@@ -223,17 +225,17 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
 
     # Update displacement criterion, if needed.
     # max(squared disp) is not a really good criterion, to be improved..
-    if (vw.dotproduct(vw.matminus(new_vertex, vertices[i]),
-                      vw.matminus(new_vertex, vertices[i]))
+    if (dotproduct(matminus(new_vertex, vertices[i]),
+                      matminus(new_vertex, vertices[i]))
             > var):
-        var = vw.dotproduct(vw.matminus(new_vertex, vertices[i]),
-                            vw.matminus(new_vertex, vertices[i]))
+        var = dotproduct(matminus(new_vertex, vertices[i]),
+                            matminus(new_vertex, vertices[i]))
 
     if SAVE_RESULTS:
         # Branch the lists of lists to a proper GH output
-        for M in vw.matminus(qMiX2, vw.matmul(qMi, vertices[i])):
+        for M in matminus(qMiX2, matmul(qMi, vertices[i])):
             out['M'].Add(M / (qli + ql2i), GH_Path(iter_qs, iter, i))
-        for C in vw.matminus(qliX2, vw.matmul(qli, vertices[i])):
+        for C in matminus(qliX2, matmul(qli, vertices[i])):
             out['C'].Add(C / (qli + ql2i), GH_Path(iter_qs, iter, i))
         for P in PX2X3:
             out['P'].Add(P / (qli + ql2i), GH_Path(iter_qs, iter, i))
@@ -268,17 +270,24 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
       out = results updated to current iteration
     """
 
-    # Copy vertices to a new list, so that we do not overwrite it
-    new_vertices = copy.deepcopy(vertices)
+    if METHOD == 'seidel':
+        #Update the mesh in-place as we loop over each vertex
+        new_vertices = vertices
+    else:
+        # Copy vertices to a new list, so that we do not overwrite it
+        new_vertices = copy.deepcopy(vertices)
     iter += 1
     var = 0
-    for i in range(len(vertices)):
+    for i in xrange(len(vertices)):
         if not fixed[i]:
             var, new_vertices[i], out = iterate_vertex(
                 i, vertices, vertices_faces_nodes, vertices_faces[i],
                 naked[i], qs, ql, n_cable, P6, var, iter_qs, iter, out
             )
-    vertices = copy.deepcopy(new_vertices)
+    if METHOD == 'seidel':
+        vertices == new_vertices
+    else:
+        vertices = copy.deepcopy(new_vertices)
 
     return iter, var, vertices, out
 

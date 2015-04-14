@@ -61,7 +61,19 @@ def matplus(A, B):   # noqa
 
 
 def matminus(A, B):  # noqa
-    return matplus(A, matmul(-1, B))
+    #return matplus(A, matmul(-1, B))
+    if type(A) != list and type(B) != list:
+        res = A - B
+    elif type(A[0]) != list and type(B[0]) != list:
+        res = [A[i] - B[i] for i in range(len(A))]
+    else:
+        try:
+            res = [[A[i][j] - B[i][j] for j in range(len(B[0]))]
+                   for i in range(len(A))]
+        except TypeError:
+            raise TypeError(
+                "Matrices dimensions not compatible: %s and %s" % (A, B))
+    return res
 
 
 def matmul(A, B):  # noqa
@@ -107,6 +119,11 @@ def transpose(A):  # noqa
         res = [[A[i]] for i in range(len(A))]
     return res
 
+def diag(V, dim=None):  # noqa
+    if not dim:
+        return [[(i == j) * V[i] for i in range(len(V))] for j in range(len(V))]
+    else:
+        return [[(i == j) * V for i in range(dim)] for j in range(dim)]
 
 if __name__ == '__main__':
     A = [[1, 2, 3], [4, 5, 6], [7, 8, 10]]
@@ -125,3 +142,5 @@ if __name__ == '__main__':
     print transpose(x1)
     print matmul(3, x1)
     print matmul(A, 3)
+    print diag(x1)
+    print diag(5, dim=4)
