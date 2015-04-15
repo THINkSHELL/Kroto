@@ -50,7 +50,7 @@ FIXED_CABLE_ENDS = True
 
 
 def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
-                   naked, qs, ql, n_cable, P6, var, iter_qs, iter, out):
+                   naked, qs, ql, n_cable, P6, G6, var, iter_qs, iter, out):
     """Updates the position of a node in the mesh
 
     Arguments:
@@ -63,6 +63,8 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
       qs = the stress density for all faces in the mesh
       ql = the cable force density
       n_cable = the list of list of cable segments from each vertex
+      P6 = pressure / 6
+      G6 = surfacic weight density / 6
       var = the current maximum displacement in the iteration
       iter_qs = current iteration in the qs loop
       iter = current iteration in the stresses loop
@@ -95,7 +97,8 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
     # qs_j  = face number j surface stress density coefficient
     # ql_j  = cable segment number j force density coefficient (for points
     #         in the middle of a cable, count each side once)
-    # P6    = pressure / 3 (uniform scalar at the moment)
+    # P6    = pressure / 6 (uniform scalar at the moment)
+    # G6    = surfacic weight density / 6 (uniform scalar at the moment)
 
     # qMi   = sum(j = [1, m_i]; qs_j * M_(i,j))
     #       = local stiffness matrix, [3x3] matrix
@@ -107,8 +110,11 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
     #       = local cable stifness coefficient, scalar
     # qliX2 = sum(j = [1, n_i]; ql_j * M_(i,j) * X_2j)
     #       = local cable forces on the vertex, [3x1] vector
-    # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i)
+    # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i))
     #       = pressure membrane forces around the vertex, [3x1] vector
+    # G3    = sum(j = [1, m_i]; norm(X_12j/\X_13j))
+    #       = u3 term / G6 of the gravity forces around the vertex, scalar
+    # Fg    = [0, 0, - G3 * G6] = gravity forces, [3x1] vector
 
     # First we initialize the intermediate vectors for calculation
     qMi = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]  # noqa
@@ -120,6 +126,7 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
         qli = 0
     qliX2 = [0, 0, 0]  # noqa
     PX2X3 = [0, 0, 0]  # noqa
+    G3 = 0  # noqa
 
     j = 0
 
@@ -133,6 +140,9 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
         x2 = vertices[vertices_faces_nodes[(i, j)][1]]  # = X_2j,3D point,[3x1]
         x3 = vertices[vertices_faces_nodes[(i, j)][2]]  # = X_3j,3D point,[3x1]
         x23 = matminus(x3, x2)  # = vector X_2j3j, [3x1] vector
+        if G6:
+            x12 = matminus(x2, vertices[i])
+            x13 = matminus(x3, vertices[i])
         qij = qs[vertex_faces[j]]  # = qs_j = Surface stress density coef
 
         # qMij = qs_j * M_(i,j)
@@ -154,16 +164,25 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
 
         # PX2X3 = sum(j = [1, m_i]; P/6 * (X_2j/\X_3j + X_2j3j/\X_i),
         # running sum update, [3,1] vector
-        PX2X3 = matplus(  # noqa
-            PX2X3,  # noqa
-            matmul(P6, crossproduct(x2, x3))
-        )
-        # The contour term is non-zero only for edge nodes
-        if naked:
+        if P6:
             PX2X3 = matplus(  # noqa
-                PX2X3,
-                matmul(P6, crossproduct(x23, vertices[i]))
+                PX2X3,  # noqa
+                matmul(P6, crossproduct(x2, x3))
             )
+            # The contour term is non-zero only for edge nodes
+            if naked:
+                PX2X3 = matplus(  # noqa
+                    PX2X3,
+                    matmul(P6, crossproduct(x23, vertices[i]))
+                )
+
+        # G3 = sum(j = [1, m_i]; norm(X_12j/\X_13j)),
+        # running sum update, scalar
+        if G6:
+            G3 += dotproduct(
+                crossproduct(x12, x13),
+                crossproduct(x12, x13)
+            ) ** 0.5
 
         if DEBUG:
             print '\n'.join([
@@ -183,9 +202,13 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
             # Running sum update, [3x1] vector.
             qliX2 = matplus(qliX2, matmul(ql[i][j], vertices[v]))  # noqa
 
+    # Build the gravity forces vector
+    # Fg = [0, 0, - G3 * G6]
+    Fg = [0, 0, - G3 * G6]
+
     # Do the actual work here, both methods
     # X_i(t+1) = X_i(t) + SPEED * ((qMi + qli)^-1 *
-    #                        (qMiX2 + qliX2 + PX2X3) - X_i(t))
+    #                        (qMiX2 + qliX2 + PX2X3 + Fg) - X_i(t))
     if METHOD == 'gradient':
         new_vertex = matplus(
             vertices[i],
@@ -194,7 +217,7 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
                 matminus(
                     matmul(
                         inverse(matplus(qMi, diag(qli, dim=3))),
-                        matplus(qMiX2, matplus(qliX2, PX2X3))
+                        matplus(qMiX2, matplus(qliX2, matplus(PX2X3, Fg)))
                     ),
                     vertices[i]
                 )
@@ -208,7 +231,7 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
             matmul(
                 SPEED / (ql2i + qli),
                 matminus(
-                    matplus(qMiX2, matplus(qliX2, PX2X3)),
+                    matplus(qMiX2, matplus(qliX2, matplus(PX2X3, Fg))),
                     matmul(
                         matplus(qMi, diag(qli, dim=3)),
                         vertices[i]
@@ -231,14 +254,17 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
             out['M'].Add(M / (qli + ql2i), GH_Path(iter_qs, iter, i))
         for C in matminus(qliX2, matmul(qli, vertices[i])):
             out['C'].Add(C / (qli + ql2i), GH_Path(iter_qs, iter, i))
-        for P in PX2X3:
-            out['P'].Add(P / (qli + ql2i), GH_Path(iter_qs, iter, i))
+        for p in PX2X3:
+            out['P'].Add(p / (qli + ql2i), GH_Path(iter_qs, iter, i))
+        for g in Fg:
+            out['G'].Add(g / (qli + ql2i), GH_Path(iter_qs, iter, i))
 
     return var, new_vertex, out
 
 
 def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
-                     naked, fixed, qs, ql, n_cable, P6, iter_qs, iter, out):
+                     naked, fixed, qs, ql, n_cable, P6, G6, iter_qs, iter,
+                     out):
     """Updates all nodes on the mesh once
 
     Arguments:
@@ -253,6 +279,7 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cables segments connected to a vertex
       P6 = pressure / 6
+      G6 = surfacic weight density / 6
       iter_qs = current iteration in the qs loop
       iter = current iteration number
       out = dictionnary of lists saving the forces acting on each
@@ -276,7 +303,7 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
         if not fixed[i]:
             var, new_vertices[i], out = iterate_vertex(
                 i, vertices, vertices_faces_nodes, vertices_faces[i],
-                naked[i], qs, ql, n_cable, P6, var, iter_qs, iter, out
+                naked[i], qs, ql, n_cable, P6, G6, var, iter_qs, iter, out
             )
     if METHOD == 'seidel':
         vertices == new_vertices
@@ -287,7 +314,7 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
 
 
 def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
-                     connec, naked, fixed, qs, ql, n_cable, P, iter_qs, out,
+                     connec, naked, fixed, qs, ql, n_cable, P, G, iter_qs, out,
                      meshi=None):
     """Iterates the problem with qs fixed, until a pseudo-minimal
     surface is found.
@@ -305,6 +332,7 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments attached to each vertex
       P = pressure
+      G = weight density per surface area (i.e. volumic density * thickness)
       iter_qs = current iteration in the qs loop
       out = dictionnary of lists saving the forces acting on each
             vertex (qMiX2, qliX2 and PX2X3)
@@ -324,7 +352,7 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
     while (iter < MAX_ITER) & (var > MAX_DISP):
         iter, var, vertices, out = iterate_one_step(
             vertices, vertices_faces_nodes, vertices_faces, naked, fixed, qs,
-            ql, n_cable, P / 6, iter_qs, iter, out
+            ql, n_cable, P / 6, G / 6, iter_qs, iter, out
         )
         if GRAPHIC:
             rs.HideObject(meshi)
@@ -340,7 +368,7 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
 
 
 def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
-                  reference=None, ql=None, n_cable=None, P=0):
+                  reference=None, ql=None, n_cable=None, P=0, G=0):
     """Iterates a mesh until it is close to a minimal surface.
 
     Arguments:
@@ -353,12 +381,13 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments connected to a vertex
       P = pressure
+      G = weight density per surface area (i.e. volumic density * thickness)
+    Returns:
+      vertices = vertices at new position
       out = dictionnary of lists saving the forces acting on each
             vertex ('M' = qMiX2, 'C' = qliX2 and 'P' = PX2X3),
             also 'S' = faces stress and 'convergence' = convergence
             criterion for each iteration.
-    Returns:
-        vertices = vertices at new position
     """
 
     # Initialize
@@ -408,6 +437,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
     out = {'M': DataTree[object](),
            'C': DataTree[object](),
            'P': DataTree[object](),
+           'G': DataTree[object](),
            'S': [0 for i in range(rs.MeshFaceCount(mesh))],
            'convergence': DataTree[object](),
            }
@@ -420,7 +450,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
     while (iter_qs < MAX_ITER_QS) & (dev_sigma > MAX_DEV_SIGMA):
         vars, vertices, out = iterate_fixed_qs(
             vertices, vertices_faces_nodes, vertices_faces, connec, naked,
-            fixed, qs, ql, n_cable, P, iter_qs, out
+            fixed, qs, ql, n_cable, P, G, iter_qs, out
         )
         # Branch the list of lists to a proper GH output
         for i, var in enumerate(vars):
