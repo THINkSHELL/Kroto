@@ -88,12 +88,17 @@ def define_cables(cables, q_cables, vertices, naked, fixed):  # noqa
 
     for i, cable in enumerate(cables):
 
+        if temp[i] == []:
+            raise ValueError('Cable #%i is to be too far off the mesh' % i)
+
         # Sort vertices along cable, successive vertices will be linked
         temp[i].sort(key=lambda v: rs.CurveClosestPoint(cable, vertices[v]))
 
         # If cable is closed, re-add first vertex at the end
         if rs.Distance(rs.CurveStartPoint(cable),
                        rs.CurveEndPoint(cable)) < tol:
+            print rs.Distance(rs.CurveStartPoint(cable),
+                              rs.CurveEndPoint(cable))
             temp[i].append(temp[i][0])
 
         for j in range(len(temp[i])):

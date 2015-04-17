@@ -36,21 +36,21 @@ import meshminimizehelpers as mmh
 #         of the gradient method)
 # METHOD = 'fixed-point', 'seidel' or 'gradient'
 # FIXED_CABLE_ENDS = cables ends are considered fixed
-DEBUG = 0
-GRAPHIC = 0
-SHOW_RESULT = 0
-SAVE_RESULTS = 0
+DEBUG = False
+GRAPHIC = False
+SHOW_RESULT = False
+SAVE_RESULTS = False
 MAX_DISP = 0.01
 MAX_ITER = 10
-MAX_ITER_QS = 10
+MAX_ITER_QS = 2
 MAX_DEV_SIGMA = 1
 SPEED = 1
-METHOD = 'fixed-point'
+METHOD = 'seigel'
 FIXED_CABLE_ENDS = True
 
 
 def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
-                   naked, qs, ql, n_cable, P6, G6, var, iter_qs, iter, out):
+                   naked, qs, ql, n_cable, P6, G6, res, iter_qs, iter, out):
     """Updates the position of a node in the mesh
 
     Arguments:
@@ -65,13 +65,13 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
       n_cable = the list of list of cable segments from each vertex
       P6 = pressure / 6
       G6 = surfacic weight density / 6
-      var = the current maximum displacement in the iteration
+      res = the current maximum displacement in the iteration
       iter_qs = current iteration in the qs loop
       iter = current iteration in the stresses loop
       out = dictionnary of lists saving the forces acting on each
             vertex (qMiX2, qliX2 and PX2X3)
     Returns
-      var = the updated maximum displacement
+      res = the updated maximum displacement
       new_vertex = the updated position of the node
       out = results saved with new vertex
     """
@@ -244,8 +244,8 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
     # max(squared disp) is not a really good criterion, to be improved..
     if (dotproduct(matminus(new_vertex, vertices[i]),
                    matminus(new_vertex, vertices[i]))
-            > var):
-        var = dotproduct(matminus(new_vertex, vertices[i]),
+            > res):
+        res = dotproduct(matminus(new_vertex, vertices[i]),
                          matminus(new_vertex, vertices[i]))
 
     if SAVE_RESULTS:
@@ -259,7 +259,7 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces,  # noqa
         for g in Fg:
             out['G'].Add(g / (qli + ql2i), GH_Path(iter_qs, iter, i))
 
-    return var, new_vertex, out
+    return res, new_vertex, out
 
 
 def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
@@ -286,7 +286,7 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
             vertex (qMiX2, qliX2 and PX2X3)
     Returns:
       iter = updated iteration number
-      var = maximum squared displacement for this iteration
+      res = maximum squared displacement for this iteration
       vertices = updated positions of vertices
       out = results updated to current iteration
     """
@@ -298,19 +298,19 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces,  # noqa
         # Copy vertices to a new list, so that we do not overwrite it
         new_vertices = copy.deepcopy(vertices)
     iter += 1
-    var = 0
+    res = 0
     for i in xrange(len(vertices)):
         if not fixed[i]:
-            var, new_vertices[i], out = iterate_vertex(
+            res, new_vertices[i], out = iterate_vertex(
                 i, vertices, vertices_faces_nodes, vertices_faces[i],
-                naked[i], qs, ql, n_cable, P6, G6, var, iter_qs, iter, out
+                naked[i], qs, ql, n_cable, P6, G6, res, iter_qs, iter, out
             )
     if METHOD == 'seidel':
         vertices == new_vertices
     else:
         vertices = copy.deepcopy(new_vertices)
 
-    return iter, var, vertices, out
+    return iter, res, vertices, out
 
 
 def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
@@ -338,33 +338,37 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces,  # noqa
             vertex (qMiX2, qliX2 and PX2X3)
       meshi = save-state for graphical display
     Returns:
-      vars = list of maximum squared displacement for each iteration
+      res_list = list of maximum squared displacement for each iteration
       vertices = updated positions of vertices
       out = results updated to current iteration
     """
 
     # Initialize loop
     iter = 0
-    var = 2 * MAX_DISP + 1
-    vars = []
+    res = 2 * MAX_DISP + 1
+    res_list = []
 
     # Loop while we can, get some display if wanted
-    while (iter < MAX_ITER) & (var > MAX_DISP):
-        iter, var, vertices, out = iterate_one_step(
+    while (iter < MAX_ITER) & (res > MAX_DISP):
+        iter, res, vertices, out = iterate_one_step(
             vertices, vertices_faces_nodes, vertices_faces, naked, fixed, qs,
             ql, n_cable, P / 6, G / 6, iter_qs, iter, out
         )
+        res_list.append(res)
+
         if GRAPHIC:
             rs.HideObject(meshi)
             meshi = rs.AddMesh(vertices, connec)
             print (u"itération {},"
                    u"\nDéplacement^2 maximum depuis "
-                   u"l'itération précedente : {} mm²").format(iter, var)
+                   u"l'itération précedente : {} mm²").format(iter, res)
         else:
-            print var
-        vars.append(var)
+            print res
+        if SAVE_RESULTS:
+            out['A'].Add(rs.MeshArea(rs.AddMesh(vertices, connec))[1],
+                         GH_Path(iter_qs))
 
-    return vars, vertices, out
+    return res_list, vertices, out
 
 
 def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
@@ -438,6 +442,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
            'C': DataTree[object](),
            'P': DataTree[object](),
            'G': DataTree[object](),
+           'A': DataTree[object](),
            'S': [0 for i in range(rs.MeshFaceCount(mesh))],
            'convergence': DataTree[object](),
            }
@@ -448,13 +453,13 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,  # noqa
 
     # Loop while qs needs to be updated
     while (iter_qs < MAX_ITER_QS) & (dev_sigma > MAX_DEV_SIGMA):
-        vars, vertices, out = iterate_fixed_qs(
+        res_list, vertices, out = iterate_fixed_qs(
             vertices, vertices_faces_nodes, vertices_faces, connec, naked,
             fixed, qs, ql, n_cable, P, G, iter_qs, out
         )
         # Branch the list of lists to a proper GH output
-        for i, var in enumerate(vars):
-            out['convergence'].Add(var, GH_Path(*[0, iter_qs]))
+        for i, res in enumerate(res_list):
+            out['convergence'].Add(res, GH_Path(*[0, iter_qs]))
         iter_qs += 1
         if iter_qs < MAX_ITER_QS:
             dev_sigma, qs, out['S'] = mmh.update_qs(mesh, qs)
