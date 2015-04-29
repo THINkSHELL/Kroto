@@ -27,6 +27,25 @@ import vectorworks as vw
 import meshminimize as mm
 
 
+def redraw_off(func, *args, **kargs):
+    """Decorator function turning off Redraw in Rhino.
+
+    Parameters:
+      func = function to be decorated
+      *args, **kargs = arguments
+    Returns:
+      wrapper = decorated function
+    """
+    def wrapper(*args, **kargs):
+        rs.EnableRedraw(False)
+        result = func(*args, **kargs)
+        rs.EnableRedraw(True)
+        rs.Redraw()
+        return result
+    return wrapper
+
+
+@redraw_off
 def upward_face(n, x1, x2, x3):
     """Returns True if the face orientation defined by the order of the
     passed in points (screw rule) is the same as that of the mesh,
@@ -51,7 +70,8 @@ def upward_face(n, x1, x2, x3):
     return a > 0
 
 
-def define_cables(cables, q_cables, vertices, naked, fixed):  # noqa
+@redraw_off  # noqa
+def define_cables(cables, q_cables, vertices, naked, fixed):
     """Defines the cables list strucure from the Rhino geometry.
     Connects the mesh vertices lying on a polyline together. The
     polyline vertices are not considered as ends for the
@@ -74,66 +94,65 @@ def define_cables(cables, q_cables, vertices, naked, fixed):  # noqa
     tol = rs.UnitAbsoluteTolerance()
 
     # Initialize
-    # temp = list of list of vertices on each cable
+    # vcab = list of list of vertices on each cable
     # ql = list of list of the connected cables force densities,
     #      for each vertex
     # n_cable = connectivity matrix of the cables
     #         = list of list of connected vertices to each vertex
-    temp = [[] for i in cables]
+    vcab = [[] for i in cables]
     ql = [[] for i in vertices]
     n_cable = [[] for i in vertices]
 
-    # Only consider naked edge vertices, if a cable is in the middle of
-    # a mesh then these edges have to be split
     for v, vertex in enumerate(vertices):
-
+        # Only consider naked edge vertices, if a cable is in the middle
+        #  of a mesh then these edges have to be split
         if naked[v]:
             for i, cable in enumerate(cables):
+                v_proj_cab = rs.EvaluateCurve(
+                    cable,
+                    rs.CurveClosestPoint(cable, vertex)
+                )
+                dis_v_to_cab = rs.Distance(v_proj_cab, vertex)
 
-                # Vertex is on cable i, save it to temp[i]
-                if (rs.Distance(
-                        rs.EvaluateCurve(
-                            cable,
-                            rs.CurveClosestPoint(cable, vertex)),
-                        vertex) < tol):
-                    temp[i].append(v)
-
-                    # Vertex is on a cable end, fix it if needed
-                    if (mm.FIXED_CABLE_ENDS and
-                            min(rs.Distance(rs.CurveEndPoint(cable), vertex),
-                                rs.Distance(rs.CurveStartPoint(cable), vertex))
-                            < tol):
+                if dis_v_to_cab < tol:
+                    # Vertex is on cable i, save it to vcab[i]
+                    vcab[i].append(v)
+                    dis_v_to_ends = min(
+                        rs.Distance(rs.CurveEndPoint(cable), vertex),
+                        rs.Distance(rs.CurveStartPoint(cable), vertex)
+                    )
+                    if mm.FIXED_CABLE_ENDS and dis_v_to_ends < tol:
+                        # Vertex is on a cable end, fix it if needed
                         if mm.DEBUG:
                             rs.AddPoint(vertex)
                         fixed[v] = True
 
     for i, cable in enumerate(cables):
-
-        if temp[i] == []:
-            raise ValueError('Cable #%i is to be too far off the mesh' % i)
-
+        if vcab[i] == []:
+            raise ValueError(
+                'Cable #%i appears to be too far off the mesh' % i
+            )
         # Sort vertices along cable, successive vertices will be linked
-        temp[i].sort(key=lambda v: rs.CurveClosestPoint(cable, vertices[v]))
-
+        vcab[i].sort(key=lambda v: rs.CurveClosestPoint(cable, vertices[v]))
         # If cable is closed, re-add first vertex at the end
         if rs.Distance(rs.CurveStartPoint(cable),
                        rs.CurveEndPoint(cable)) < tol:
-            print rs.Distance(rs.CurveStartPoint(cable),
-                              rs.CurveEndPoint(cable))
-            temp[i].append(temp[i][0])
+            vcab[i].append(vcab[i][0])
 
-        for j in range(len(temp[i])):
-            if not fixed[temp[i][j]]:
+        # Construct connectivity matrix for current cable
+        for j in range(len(vcab[i])):
+            if not fixed[vcab[i][j]]:
                 if j:
-                    n_cable[temp[i][j]].append(temp[i][j - 1])
-                    ql[temp[i][j]].append(q_cables[i])
-                if (j - len(temp[i]) + 1):
-                    n_cable[temp[i][j]].append(temp[i][j + 1])
-                    ql[temp[i][j]].append(q_cables[i])
+                    n_cable[vcab[i][j]].append(vcab[i][j - 1])
+                    ql[vcab[i][j]].append(q_cables[i])
+                if j - len(vcab[i]) + 1:
+                    n_cable[vcab[i][j]].append(vcab[i][j + 1])
+                    ql[vcab[i][j]].append(q_cables[i])
 
     return ql, n_cable, fixed
 
 
+@redraw_off
 def orient_mesh_faces(mesh):
     """Orients faces around the nodes in a mesh to a consistant order
     and normal direction. Roughly equivalent to rs.MeshFaceVertices, but
@@ -145,6 +164,7 @@ def orient_mesh_faces(mesh):
       vertex_faces list of faces adjacent to a node
     """
 
+    rs.EnableRedraw(False)
     normals = rs.MeshFaceNormals(mesh)
     vertices = rs.MeshVertices(mesh)
     connec = rs.MeshFaceVertices(mesh)
@@ -165,9 +185,11 @@ def orient_mesh_faces(mesh):
                 vertex_faces[(i, j)] = [i, others[1], others[0]]
                 if mm.DEBUG:
                     print 'flip'
+    rs.EnableRedraw
     return vertex_faces
 
 
+@redraw_off
 def mesh_distance(vertices, objective):
     """Evauluates the distance between two set of vertices representing
     the same mesh in different positions.  The distance is just a max of
@@ -183,14 +205,13 @@ def mesh_distance(vertices, objective):
 
     distance = 0
     for i in range(len(vertices)):
-        if (vw.dotproduct(vw.matminus(objective[i], vertices[i]),
-                          vw.matminus(objective[i], vertices[i]))
-                > distance):
-            distance = vw.dotproduct(vw.matminus(objective[i], vertices[i]),
-                                     vw.matminus(objective[i], vertices[i]))
+        temp = vw.dist3(objective[i], vertices[i])
+        if temp > distance:
+            distance = temp
     return distance
 
 
+@redraw_off
 def mesh_closest_vertices(mesh, points):
     """Finds the vertices of a mesh that are within the document's tolerance
     of one of the points in the list.
@@ -241,10 +262,9 @@ def update_qs(mesh, qs):
         x1 = vertices[face[0]]  # = X_1j, 3D point, [3x1] vector
         x2 = vertices[face[1]]  # = X_2j, 3D point, [3x1] vector
         x3 = vertices[face[2]]  # = X_3j, 3D point, [3x1] vector
-        x12 = vw.matminus(x2, x1)
-        x23 = vw.matminus(x3, x1)
-        n = vw.crossproduct(x12, x23)
-        face_area = .5 * vw.dotproduct(n, n) ** .5
+        x12 = vw.vecminus3(x2, x1)
+        x23 = vw.vecminus3(x3, x1)
+        face_area = .5 * vw.norm3(vw.crossproduct3(x12, x23))
         sigma[i] = qs[i] * face_area
         mean_sigma += sigma[i] / n_faces
 

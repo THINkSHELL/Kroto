@@ -22,46 +22,57 @@
 """Provides simple vector and matrix calculus functions.
 """
 
-id = [[1, 0, 0],
-      [0, 1, 0],
-      [0, 0, 1]]
-
 
 def dotproduct(x1, x2):
+    """Computes the cross-product of 2 vectors.
+    """
     return sum([x1[i] * x2[i] for i in range(len(x1))])
 
 
-def crossproduct(x1, x2):
-    a = x1[1] * x2[2] - x1[2] * x2[1]
-    b = x1[2] * x2[0] - x1[0] * x2[2]
-    c = x1[0] * x2[1] - x1[1] * x2[0]
-    return [a, b, c]
+def dotproduct3(x1, x2):
+    """Faster cross-product of 2 vectors, in dimension 3 ONLY.
+    """
+    return x1[0] * x2[0] + x1[1] * x2[1] + x1[2] * x2[2]
 
 
-def inverse(A):  # noqa
+def crossproduct3(x1, x2):
+    """Computes the cross-product of 2 vectors, in dimension 3 ONLY.
+    """
+    return [
+        x1[1] * x2[2] - x1[2] * x2[1],
+        x1[2] * x2[0] - x1[0] * x2[2],
+        x1[0] * x2[1] - x1[1] * x2[0]
+    ]
+
+
+def inverse3(a):
+    """Computes the inverse of a matrix, in dimension 3 ONLY.
+    Returns None if the determinant is 0.
+    """
     det = (
-        A[0][0] * A[1][1] * A[2][2] +
-        A[1][0] * A[2][1] * A[0][2] +
-        A[2][0] * A[0][1] * A[1][2] -
-        A[0][2] * A[1][1] * A[2][0] -
-        A[1][2] * A[2][1] * A[0][0] -
-        A[2][2] * A[0][1] * A[1][0])
+        a[0][0] * a[1][1] * a[2][2] +
+        a[1][0] * a[2][1] * a[0][2] +
+        a[2][0] * a[0][1] * a[1][2] -
+        a[0][2] * a[1][1] * a[2][0] -
+        a[1][2] * a[2][1] * a[0][0] -
+        a[2][2] * a[0][1] * a[1][0]
+    )
     if det:
         res = [
             [
-                A[1][1] * A[2][2] / det - A[1][2] * A[2][1] / det,
-                A[0][2] * A[2][1] / det - A[0][1] * A[2][2] / det,
-                A[0][1] * A[1][2] / det - A[0][2] * A[1][1] / det
+                a[1][1] * a[2][2] / det - a[1][2] * a[2][1] / det,
+                a[0][2] * a[2][1] / det - a[0][1] * a[2][2] / det,
+                a[0][1] * a[1][2] / det - a[0][2] * a[1][1] / det
             ],
             [
-                A[1][2] * A[2][0] / det - A[1][0] * A[2][2] / det,
-                A[0][0] * A[2][2] / det - A[0][2] * A[2][0] / det,
-                A[0][2] * A[1][0] / det - A[0][0] * A[1][2] / det
+                a[1][2] * a[2][0] / det - a[1][0] * a[2][2] / det,
+                a[0][0] * a[2][2] / det - a[0][2] * a[2][0] / det,
+                a[0][2] * a[1][0] / det - a[0][0] * a[1][2] / det
             ],
             [
-                A[1][0] * A[2][1] / det - A[1][1] * A[2][0] / det,
-                A[0][1] * A[2][0] / det - A[0][0] * A[2][1] / det,
-                A[0][0] * A[1][1] / det - A[0][1] * A[1][0] / det
+                a[1][0] * a[2][1] / det - a[1][1] * a[2][0] / det,
+                a[0][1] * a[2][0] / det - a[0][0] * a[2][1] / det,
+                a[0][0] * a[1][1] / det - a[0][1] * a[1][0] / det
             ]
         ]
     else:
@@ -69,103 +80,243 @@ def inverse(A):  # noqa
     return res
 
 
-def matplus(A, B):   # noqa
-    if type(A) != list and type(B) != list:
-        res = A + B
-    elif type(A[0]) != list and type(B[0]) != list:
-        res = [A[i] + B[i] for i in range(len(A))]
+def matplus(a, b):
+    """Computes the term-by-term sum of 2 array-like objects.
+    Accepts any combination of scalars, vectors and matrices,
+    as long as their dimensions match.
+    """
+    if type(a) != list and type(b) != list:
+        res = a + b
+    elif type(a[0]) != list and type(b[0]) != list:
+        res = [a[i] + b[i] for i in range(len(a))]
     else:
         try:
-            res = [[A[i][j] + B[i][j] for j in range(len(B[0]))]
-                   for i in range(len(A))]
+            res = [[a[i][j] + b[i][j] for j in range(len(b[0]))]
+                   for i in range(len(a))]
         except TypeError:
             raise TypeError(
-                "Matrices dimensions not compatible: %s and %s" % (A, B))
+                "Matrices dimensions not compatible: %s and %s" % (a, b))
     return res
 
 
-def matminus(A, B):  # noqa
-    if type(A) != list and type(B) != list:
-        res = A - B
-    elif type(A[0]) != list and type(B[0]) != list:
-        res = [A[i] - B[i] for i in range(len(A))]
-    else:
-        try:
-            res = [[A[i][j] - B[i][j] for j in range(len(B[0]))]
-                   for i in range(len(A))]
-        except TypeError:
-            raise TypeError(
-                "Matrices dimensions not compatible: %s and %s" % (A, B))
-    return res
-
-
-def matmul(A, B):  # noqa
-    if type(A) != list and type(B) != list:
-        res = A * B
-    elif type(A) != list:
-        if type(B[0]) == list:
-            res = [[A * B[i][j] for j in range(len(B[0]))]
-                   for i in range(len(B))]
-        else:
-            res = [A * B[i] for i in range(len(B))]
-    elif type(B) != list:
-        res = matmul(B, A)
-    elif type(A[0]) == list and type(B[0]) == list:
-        res = [[sum(A[i][k] * B[k][j] for k in range(len(B)))
-               for j in range(len(B[0]))] for i in range(len(A))]
-    elif type(A[0]) == list:
-        res = [sum(A[i][k] * B[k] for k in range(len(B)))
-               for i in range(len(A))]
-    elif type(B[0]) == list:
-        res = [sum(A[k] * B[k][j] for k in range(len(B)))
-               for j in range(len(B[0]))]
-    else:
-        res = dotproduct(A, B)
-    return res
-
-
-def matkronproduct(A, B):  # noqa
+def matplus3(a, b):
+    """Faster term-by-term matrix sum, in dimension 3 ONLY.
+    """
     return [
-        [A[i][j] * B[k][l] for j in range(len(A[0])) for l in range(len(B[0]))]
-        for i in range(len(A)) for k in range(len(B))
+        [a[0][0] + b[0][0], a[0][1] + b[0][1], a[0][2] + b[0][2]],
+        [a[1][0] + b[1][0], a[1][1] + b[1][1], a[1][2] + b[1][2]],
+        [a[2][0] + b[2][0], a[2][1] + b[2][1], a[2][2] + b[2][2]]
     ]
 
 
-def veckronproduct(x1, x2):
-    return [[x1[i] * x2[j] for j in range(len(x2))] for i in range(len(x1))]
+def vecplus3(x1, x2):
+    """Faster term-by-term vector sum, in dimension 3 ONLY.
+    """
+    return [x1[0] + x2[0], x1[1] + x2[1], x1[2] + x2[2]]
 
 
-def transpose(A):  # noqa
-    if type(A[0]) == list:
-        res = [[A[i][j] for i in range(len(A))] for j in range(len(A[0]))]
+def vecplus34(x1, x2, x3, x4):
+    """Faster term-by-term 4 vector sum, in dimension 3 ONLY.
+    """
+    return [
+        x1[0] + x2[0] + x3[0] + x4[0],
+        x1[1] + x2[1] + x3[1] + x4[1],
+        x1[2] + x2[2] + x3[2] + x4[2]
+    ]
+
+
+def matminus(a, b):
+    """Computes the term-by-term difference of 2 array-like objects.
+    Accepts any combination of scalars, vectors and matrices,
+    as long as their dimensions match.
+    """
+    if type(a) != list and type(b) != list:
+        res = a - b
+    elif type(a[0]) != list and type(b[0]) != list:
+        res = [a[i] - b[i] for i in range(len(a))]
     else:
-        res = [[A[i]] for i in range(len(A))]
+        try:
+            res = [[a[i][j] - b[i][j] for j in range(len(b[0]))]
+                   for i in range(len(a))]
+        except TypeError:
+            raise TypeError(
+                "Matrices dimensions not compatible: %s and %s" % (a, b))
     return res
 
 
-def diag(V, dim=None):  # noqa
-    if not dim:
-        return [[(i == j) * V[i] for i in range(len(V))]
-                for j in range(len(V))]
+def matminus3(a, b):
+    """Faster term-by-term matrix difference, in dimension 3 ONLY.
+    """
+    return [
+        [a[0][0] - b[0][0], a[0][1] - b[0][1], a[0][2] - b[0][2]],
+        [a[1][0] - b[1][0], a[1][1] - b[1][1], a[1][2] - b[1][2]],
+        [a[2][0] - b[2][0], a[2][1] - b[2][1], a[2][2] - b[2][2]]
+    ]
+
+
+def vecminus3(x1, x2):
+    """Faster term-by-term vector difference, in dimension 3 ONLY.
+    """
+    return [x1[0] - x2[0], x1[1] - x2[1], x1[2] - x2[2]]
+
+
+def matmul(a, b):
+    """Computes the classical product of array-like objects.
+    Accepts any combination of scalars, vectors and matrices,
+    as long as their dimensions match in the matrix product sense.
+    """
+    if type(a) != list and type(b) != list:
+        res = a * b
+    elif type(a) != list:
+        if type(b[0]) == list:
+            res = [[a * b[i][j] for j in range(len(b[0]))]
+                   for i in range(len(b))]
+        else:
+            res = [a * b[i] for i in range(len(b))]
+    elif type(b) != list:
+        res = matmul(b, a)
+    elif type(a[0]) == list and type(b[0]) == list:
+        res = [[sum(a[i][k] * b[k][j] for k in range(len(b)))
+               for j in range(len(b[0]))] for i in range(len(a))]
+    elif type(a[0]) == list:
+        res = [sum(a[i][k] * b[k] for k in range(len(b)))
+               for i in range(len(a))]
+    elif type(b[0]) == list:
+        res = [sum(a[k] * b[k][j] for k in range(len(b)))
+               for j in range(len(b[0]))]
     else:
-        return [[(i == j) * V for i in range(dim)] for j in range(dim)]
+        res = dotproduct(a, b)
+    return res
+
+
+def matvecmul3(a, x):
+    """Faster matrix * vector multiplication, in dimension 3 ONLY.
+    """
+    return [
+        x[0] * a[0][0] + x[1] * a[0][1] + x[2] * a[0][2],
+        x[0] * a[1][0] + x[1] * a[1][1] + x[2] * a[1][2],
+        x[0] * a[2][0] + x[1] * a[2][1] + x[2] * a[2][2]
+    ]
+
+
+def scalmatmul3(s, a):
+    """Faster scalar * matrix multiplication, in dimension 3 ONLY.
+    """
+    return [
+        [s * a[0][0], s * a[0][1], s * a[0][2]],
+        [s * a[1][0], s * a[1][1], s * a[1][2]],
+        [s * a[2][0], s * a[2][1], s * a[2][2]]
+    ]
+
+
+def scalvecmul3(s, x):
+    """Faster scalar * vector multiplication, in dimension 3 ONLY.
+    """
+    return [s * x[0], s * x[1], s * x[2]]
+
+
+def veckronproduct(x1, x2):
+    """Computes the kronecker product matrix of 2 vectors.
+    """
+    return [[x1[i] * x2[j] for j in range(len(x2))] for i in range(len(x1))]
+
+
+def veckronproduct3(x1, x2):
+    """Faster vector kronecker product, in dimension 3 ONLY.
+    """
+    return [
+        [x1[0] * x2[0], x1[0] * x2[1], x1[0] * x2[2]],
+        [x1[1] * x2[0], x1[1] * x2[1], x1[1] * x2[2]],
+        [x1[2] * x2[0], x1[2] * x2[1], x1[2] * x2[2]]
+    ]
+
+
+def transpose(a):
+    """Returns the input matrix transposed.
+    """
+    if type(a[0]) == list:
+        res = [[a[i][j] for i in range(len(a))] for j in range(len(a[0]))]
+    else:
+        res = [[a[i]] for i in range(len(a))]
+    return res
+
+
+def transpose3(a):
+    """Faster matrix transposition, in dimension 3 ONLY.
+    """
+    return [
+        [a[0][0], a[1][0], a[2][0]],
+        [a[0][1], a[1][1], a[2][1]],
+        [a[0][2], a[1][2], a[2][2]]
+    ]
+
+
+def diag(x, dim=None):
+    """Returns a diagonal matrix.
+    Arguments:
+      x = a vector or a scalar. If x is a vector, then dim is omitted
+      dim (optional) = dimension of the matrix to generate. Only
+                       used if x is a scalar.
+    """
+    if type(x) == list:
+        return [[(i == j) * x[i] for i in range(len(x))]
+                for j in range(len(x))]
+    elif dim:
+        return [[(i == j) * x for i in range(dim)] for j in range(dim)]
+    return None
+
+
+def diag3(x):
+    """Faster diagonal matrix from a scalar, in dimension 3 ONLY.
+    """
+    return [
+        [x, 0, 0],
+        [0, x, 0],
+        [0, 0, x]
+    ]
+
+
+def diagvec3(x):
+    """Faster diagonal matrix from a vector, in dimension 3 ONLY.
+    """
+    return [
+        [x[0], 0, 0],
+        [0, x[1], 0],
+        [0, 0, x[2]]
+    ]
+
+
+def norm3(x):
+    """Faster norm computation, in dimendion 3 ONLY.
+    """
+    return (x[0] ** 2 + x[1] ** 2 + x[2] ** 2) ** 0.5
+
+
+def dist3(x1, x2):
+    """Faster dist computation, in dimendion 3 ONLY.
+    """
+    return (
+        (x1[0] - x2[0]) ** 2 +
+        (x1[1] - x2[1]) ** 2 +
+        (x1[2] - x2[2]) ** 2
+    ) ** 0.5
+
 
 if __name__ == '__main__':
-    A = [[1, 2, 3], [4, 5, 6], [7, 8, 10]]
-    B = [[1, 2], [3, 4]]
+    a = [[1, 2, 3], [4, 5, 6], [7, 8, 10]]
+    b = [[1, 2], [3, 4]]
     x1 = [1, 2, 3]
     x2 = [4, 5, 6]
-    print A
-    print transpose(A)
+    print a
+    print transpose(a)
     print dotproduct(x1, x2)
-    print crossproduct(x1, x2)
-    print matkronproduct(A, B)
-    print veckronproduct(x1, x2)
-    print inverse(A)
-    print matmul(A, x1)
-    print matmul(x2, A)
+    print crossproduct3(x1, x2)
+    print veckronproduct3(x1, x2)
+    print inverse3(a)
+    print matmul(a, x1)
+    print matmul(x2, a)
     print transpose(x1)
     print matmul(3, x1)
-    print matmul(A, 3)
+    print matmul(a, 3)
     print diag(x1)
     print diag(5, dim=4)
