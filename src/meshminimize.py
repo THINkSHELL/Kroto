@@ -36,6 +36,8 @@ from Grasshopper import DataTree
 import copy
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
+from imp import reload
+reload(vw)
 
 # Define default options for the solver
 # DEBUG = verbose option
