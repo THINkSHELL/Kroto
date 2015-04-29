@@ -287,13 +287,13 @@ def diagvec3(x):
 
 
 def norm3(x):
-    """Faster norm computation, in dimendion 3 ONLY.
+    """Faster norm computation, in dimension 3 ONLY.
     """
     return (x[0] ** 2 + x[1] ** 2 + x[2] ** 2) ** 0.5
 
 
 def dist3(x1, x2):
-    """Faster dist computation, in dimendion 3 ONLY.
+    """Faster distance computation, in dimension 3 ONLY.
     """
     return (
         (x1[0] - x2[0]) ** 2 +
