@@ -36,8 +36,6 @@ from Grasshopper import DataTree
 import copy
 import rhinoscriptsyntax as rs
 import meshminimizehelpers as mmh
-from imp import reload
-reload(vw)
 
 # Define default options for the solver
 # DEBUG = verbose option
@@ -76,7 +74,7 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces, naked, qs,
     Arguments:
       i = the node number in the mesh
       vertices = the list of the mesh nodes
-      vertices_faces_nodes = list of lists of list of nodes consituting
+      vertices_faces_nodes = list of lists of list of nodes constituting
             the faces connected to a vertex, from orient_mesh_faces(mesh)
       vertex_faces = the list of faces adjacent to the node
       naked = True if the vertex is on a naked edge
@@ -84,11 +82,11 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces, naked, qs,
       ql = the cable force density
       n_cable = the list of list of cable segments from each vertex
       p6 = pressure / 6
-      g6 = surfacic weight density / 6
+      g6 = surface weight density / 6
       res = the current maximum displacement in the iteration
       iter_qs = current iteration in the qs loop
       iter = current iteration in the stresses loop
-      out = dictionnary of lists saving the forces acting on each
+      out = dictionary of lists saving the forces acting on each
             vertex (q_mix2, q_lix2 and p_x2x3)
     Returns
       res = the updated maximum displacement
@@ -101,8 +99,8 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces, naked, qs,
 
     # .  = vector dot-product ( [n,1] . [n,1] -> [1,1] )
     # /\ = vector cross-product ( [n,1] /\ [n,1] -> [n,1] )
-    # x  = vector kronecker product ( [n,1] x [n,1] -> [n,n] )
-    # *  = classical multipliation of scalars, vectors or matrices
+    # x  = vector Kronecker product ( [n,1] x [n,1] -> [n,n] )
+    # *  = classical multiplication of scalars, vectors or matrices
 
     # m_i = faces around the vertex i
     # n_i = cables around the vertex i
@@ -118,16 +116,16 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces, naked, qs,
     # ql_j  = cable segment number j force density coefficient (for points
     #         in the middle of a cable, count each side once)
     # p6    = pressure / 6 (uniform scalar at the moment)
-    # g6    = surfacic weight density / 6 (uniform scalar at the moment)
+    # g6    = surface weight density / 6 (uniform scalar at the moment)
 
     # q_mi   = sum(j = [1, m_i]; qs_j * M_(i,j))
     #       = local stiffness matrix, [3x3] matrix
     # q_mix2 = sum(j = [1, m_i]; qs_j * M_(i,j) * x_2j)
     #       = local membrane forces on the vertex, [3x1] vector
     # ql2i  = sum(j = [1, m_i]; qs_j * l_ij**2)
-    #       = local membrane stifness coefficient, scalar
+    #       = local membrane stiffness coefficient, scalar
     # qli   = sum(j = [1, n_i]; ql_j)
-    #       = local cable stifness coefficient, scalar
+    #       = local cable stiffness coefficient, scalar
     # q_lix2 = sum(j = [1, n_i]; ql_j * M_(i,j) * x_2j)
     #       = local cable forces on the vertex, [3x1] vector
     # p_x2x3 = sum(j = [1, m_i]; p/6 * (x_2j/\x_3j + x_2j3j/\x_i))
@@ -265,14 +263,16 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces, naked, qs,
 
     if SAVE_RESULTS:
         # Branch the lists of lists to a proper GH output
-        for M in vecminus3(q_mix2, matvecmul3(q_mi, vertices[i])):
-            out['M'].Add(M / (qli + ql2i), GH_Path(iter_qs, iter, i))
-        for C in vecminus3(q_lix2, scalvecmul3(qli, vertices[i])):
-            out['C'].Add(C / (qli + ql2i), GH_Path(iter_qs, iter, i))
-        for p in p_x2x3:
-            out['P'].Add(p / (qli + ql2i), GH_Path(iter_qs, iter, i))
-        for g in f_g:
-            out['G'].Add(g / (qli + ql2i), GH_Path(iter_qs, iter, i))
+        M = scalvecmul3(1 / (qli + ql2i),  # noqa
+                        vecminus3(q_mix2, matvecmul3(q_mi, vertices[i])))
+        C = scalvecmul3(1 / (qli + ql2i),  # noqa
+                        vecminus3(q_lix2, scalvecmul3(qli, vertices[i])))
+        P = scalvecmul3(1 / (qli + ql2i), p_x2x3)  # noqa
+        G = scalvecmul3(1 / (qli + ql2i), f_g)  # noqa
+        out['M'].Add('{%f,%f,%f}' % tuple(M), GH_Path(0, iter_qs, iter))
+        out['C'].Add('{%f,%f,%f}' % tuple(C), GH_Path(0, iter_qs, iter))
+        out['P'].Add('{%f,%f,%f}' % tuple(P), GH_Path(0, iter_qs, iter))
+        out['G'].Add('{%f,%f,%f}' % tuple(G), GH_Path(0, iter_qs, iter))
 
     return res, new_vertex, out
 
@@ -283,20 +283,20 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces, naked,
 
     Arguments:
       vertices = list of mesh vertices, from rs.MeshVertices(mesh)
-      vertices_faces_nodes = list of lists of list of nodes consituting
+      vertices_faces_nodes = list of lists of list of nodes constituting
             the faces connected to a vertex, from orient_mesh_faces(mesh)
       vertices_faces = list of list of faces adjacent to a node, from
             rs.meshVertexFaces(mesh, i)
-      naked = list of booleans, True if vertex is on a naked edge
-      fixed = list of booleans, True if vertex is fixed
+      naked = list of boolean, True if vertex is on a naked edge
+      fixed = list of boolean, True if vertex is fixed
       qs = list of surface stress density coefficients for each face
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cables segments connected to a vertex
       p6 = pressure / 6
-      g6 = surfacic weight density / 6
+      g6 = surface weight density / 6
       iter_qs = current iteration in the qs loop
       iter = current iteration number
-      out = dictionnary of lists saving the forces acting on each
+      out = dictionary of lists saving the forces acting on each
             vertex (q_mix2, q_lix2 and p_x2x3)
     Returns:
       iter = updated iteration number
@@ -320,6 +320,11 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces, naked,
                 i, vertices, vertices_faces_nodes, vertices_faces[i],
                 naked[i], qs, ql, n_cable, p6, g6, res, iter_qs, iter, out
             )
+        elif SAVE_RESULTS:
+            out['M'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
+            out['C'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
+            out['P'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
+            out['G'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
     if METHOD == 'seidel':
         vertices == new_vertices
     else:
@@ -335,21 +340,21 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces, connec,
     surface is found.
     Arguments:
       vertices = list of mesh vertices, from rs.MeshVertices(mesh)
-      vertices_faces_nodes = list of lists of list of nodes consituting
+      vertices_faces_nodes = list of lists of list of nodes constituting
             the faces connected to a vertex, from orient_mesh_faces(mesh)
       vertices_faces = list of list of faces adjacent to a node, from
             rs.meshVertexFaces(mesh, i)
       connec = connectivity matrix in the mesh, from
                rs.MeshFaceVertices(mesh)
-      naked = list of booleans, True if vertex is on a naked edge
-      fixed = list of booleans, True if vertex is fixed
+      naked = list of boolean, True if vertex is on a naked edge
+      fixed = list of boolean, True if vertex is fixed
       qs = list of surface stress density coefficients for each face
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments attached to each vertex
       p = pressure
-      g = weight density per surface area (i.e. volumic density * thickness)
+      g = weight density per surface area (i.e. volumetric density * thickness)
       iter_qs = current iteration in the qs loop
-      out = dictionnary of lists saving the forces acting on each
+      out = dictionary of lists saving the forces acting on each
             vertex (q_mix2, q_lix2 and p_x2x3)
       meshi = save-state for graphical display
     Returns:
@@ -381,7 +386,7 @@ def iterate_fixed_qs(vertices, vertices_faces_nodes, vertices_faces, connec,
             print res
         if SAVE_RESULTS:
             out['A'].Add(rs.MeshArea(rs.AddMesh(vertices, connec))[1],
-                         GH_Path(iter_qs))
+                         GH_Path(0, iter_qs))
 
     return res_list, vertices, out
 
@@ -393,17 +398,17 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
     Arguments:
       mesh = mesh to calculate, Rhino GUID
       cables = polylines representing the cables
-      fixed = list of booleans, True if vertex is fixed
+      fixed = list of boolean, True if vertex is fixed
       qs = list of surface stress density coefficients for each face
       q_cables = list of force density coefficients for each cable
-      reference = reference mesh for comparisons, unuseds
+      reference = reference mesh for comparisons, unused
       ql = list of cable force density, for each cable segment
       n_cable = list of list of cable segments connected to a vertex
       p = pressure
-      g = weight density per surface area (i.e. volumic density * thickness)
+      g = weight density per surface area (i.e. volumetric density * thickness)
     Returns:
       vertices = vertices at new position
-      out = dictionnary of lists saving the forces acting on each
+      out = dictionary of lists saving the forces acting on each
             vertex ('M' = q_mix2, 'C' = q_lix2 and 'p' = p_x2x3),
             also 'S' = faces stress and 'convergence' = convergence
             criterion for each iteration.
@@ -483,7 +488,7 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         )
         # Branch the list of lists to a proper GH output
         for i, res in enumerate(res_list):
-            out['convergence'].Add(res, GH_Path(*[0, iter_qs]))
+            out['convergence'].Add(res, GH_Path(0, iter_qs))
         iter_qs += 1
         if iter_qs < MAX_ITER_QS:
             dev_sigma, qs, out['S'] = mmh.update_qs(mesh, qs)

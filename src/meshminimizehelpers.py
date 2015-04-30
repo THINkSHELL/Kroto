@@ -37,15 +37,17 @@ def redraw_off(func, *args, **kargs):
       wrapper = decorated function
     """
     def wrapper(*args, **kargs):
-        rs.EnableRedraw(False)
+        prev = rs.EnableRedraw(False)
         result = func(*args, **kargs)
+        if not prev:
+            # Already off, do not redraw
+            return result
         rs.EnableRedraw(True)
         rs.Redraw()
         return result
     return wrapper
 
 
-@redraw_off
 def upward_face(n, x1, x2, x3):
     """Returns True if the face orientation defined by the order of the
     passed in points (screw rule) is the same as that of the mesh,
@@ -60,19 +62,20 @@ def upward_face(n, x1, x2, x3):
     Returns:
         True or False
     """
-    v2 = rs.VectorCreate(x2, x1)
-    v3 = rs.VectorCreate(x3, x1)
+
+    v2 = vw.vecminus3(x2, x1)
+    v3 = vw.vecminus3(x3, x1)
 
     # Using rs's method for vector computation is slower than vw's, but
     # it takes into account nasty tolerance things.
-    vv = rs.VectorCrossProduct(v2, v3)
-    a = rs.VectorDotProduct(vv, n)
+    vv = vw.crossproduct3(v2, v3)
+    a = vw.dotproduct3(vv, n)
     return a > 0
 
 
 @redraw_off  # noqa
 def define_cables(cables, q_cables, vertices, naked, fixed):
-    """Defines the cables list strucure from the Rhino geometry.
+    """Defines the cables list structure from the Rhino geometry.
     Connects the mesh vertices lying on a polyline together. The
     polyline vertices are not considered as ends for the
     mm.FIXED_CABLE_ENDS option.
@@ -154,7 +157,7 @@ def define_cables(cables, q_cables, vertices, naked, fixed):
 
 @redraw_off
 def orient_mesh_faces(mesh):
-    """Orients faces around the nodes in a mesh to a consistant order
+    """Orients faces around the nodes in a mesh to a consistent order
     and normal direction. Roughly equivalent to rs.MeshFaceVertices, but
     we control the list order.
 
@@ -164,7 +167,6 @@ def orient_mesh_faces(mesh):
       vertex_faces list of faces adjacent to a node
     """
 
-    rs.EnableRedraw(False)
     normals = rs.MeshFaceNormals(mesh)
     vertices = rs.MeshVertices(mesh)
     connec = rs.MeshFaceVertices(mesh)
@@ -185,13 +187,12 @@ def orient_mesh_faces(mesh):
                 vertex_faces[(i, j)] = [i, others[1], others[0]]
                 if mm.DEBUG:
                     print 'flip'
-    rs.EnableRedraw
     return vertex_faces
 
 
 @redraw_off
 def mesh_distance(vertices, objective):
-    """Evauluates the distance between two set of vertices representing
+    """Evaluates the distance between two set of vertices representing
     the same mesh in different positions.  The distance is just a max of
     the squared length between the two vertices at corresponding indices
     in the list, so the meshes should look similar from the beginning if
@@ -219,7 +220,7 @@ def mesh_closest_vertices(mesh, points):
         mesh = a Rhino mesh
         points = a list of Rhino points
     Returns:
-        fixed = a list of booleans, True if the vertex is close to one of
+        fixed = a list of boolean, True if the vertex is close to one of
                 the points
     """
 
