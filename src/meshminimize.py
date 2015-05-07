@@ -454,10 +454,6 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
         else:
             fixed = [False for i in vertices]
 
-    # ql, n_cable are defined by mmh.define_cables if necessary
-    ql = None
-    n_cable = None
-
     # q_cables defaults to 1
     if cables:
         if not q_cables:
@@ -491,9 +487,9 @@ def minimize_mesh(mesh, cables=None, fixed=None, qs=None, q_cables=None,
             out['convergence'].Add(res, GH_Path(0, iter_qs))
         iter_qs += 1
         if iter_qs < MAX_ITER_QS:
-            dev_sigma, qs, out['S'] = mmh.update_qs(mesh, qs)
+            dev_sigma, qs, out['S'] = mmh.update_qs(mesh, vertices, qs)
         else:
-            out['S'] = mmh.update_qs(mesh, copy.deepcopy(qs))[2]
+            out['S'] = mmh.update_qs(mesh, vertices, copy.deepcopy(qs))[2]
         if DEBUG:
             print qs
         print '-' * 20

@@ -238,12 +238,13 @@ def mesh_closest_vertices(mesh, points):
     return fixed
 
 
-def update_qs(mesh, qs):
+def update_qs(mesh, vertices, qs):
     """Updates the surface stress density coefficients to reach a more
     uniform stress over the surface. Computes surface stresses at the
     same time.
     Arguments:
       mesh = the Rhino mesh
+      vertices = the current position of the mesh vertices
       qs = the list current values of qs for each face
     Returns:
       dev_sigma = maximum deviation to mean-value of the surface stress
@@ -252,7 +253,6 @@ def update_qs(mesh, qs):
     """
 
     faces = rs.MeshFaceVertices(mesh)
-    vertices = rs.MeshVertices(mesh)
     mean_sigma = 0
     dev_sigma = 0
     sigma = [0 for i in faces]
