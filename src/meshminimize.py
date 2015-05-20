@@ -269,10 +269,10 @@ def iterate_vertex(i, vertices, vertices_faces_nodes, vertex_faces, naked, qs,
                         vecminus3(q_lix2, scalvecmul3(qli, vertices[i])))
         P = scalvecmul3(1 / (qli + ql2i), p_x2x3)  # noqa
         G = scalvecmul3(1 / (qli + ql2i), f_g)  # noqa
-        out['M'].Add('{%f,%f,%f}' % tuple(M), GH_Path(0, iter_qs, iter))
-        out['C'].Add('{%f,%f,%f}' % tuple(C), GH_Path(0, iter_qs, iter))
-        out['P'].Add('{%f,%f,%f}' % tuple(P), GH_Path(0, iter_qs, iter))
-        out['G'].Add('{%f,%f,%f}' % tuple(G), GH_Path(0, iter_qs, iter))
+        out['M'].Add('{%f,%f,%f}' % tuple(M), GH_Path(0, iter_qs, iter - 1))
+        out['C'].Add('{%f,%f,%f}' % tuple(C), GH_Path(0, iter_qs, iter - 1))
+        out['P'].Add('{%f,%f,%f}' % tuple(P), GH_Path(0, iter_qs, iter - 1))
+        out['G'].Add('{%f,%f,%f}' % tuple(G), GH_Path(0, iter_qs, iter - 1))
 
     return res, new_vertex, out
 
@@ -321,10 +321,10 @@ def iterate_one_step(vertices, vertices_faces_nodes, vertices_faces, naked,
                 naked[i], qs, ql, n_cable, p6, g6, res, iter_qs, iter, out
             )
         elif SAVE_RESULTS:
-            out['M'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
-            out['C'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
-            out['P'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
-            out['G'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter))
+            out['M'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter - 1))
+            out['C'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter - 1))
+            out['P'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter - 1))
+            out['G'].Add('{0.0,0.0,0.0}', GH_Path(0, iter_qs, iter - 1))
     if METHOD == 'seidel':
         vertices == new_vertices
     else:
